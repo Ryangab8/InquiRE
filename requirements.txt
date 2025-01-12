@@ -1,0 +1,9 @@
+setuptools
+wheel
+streamlit
+pandas
+numpy
+plotly
+psycopg2-binary
+statsmodels
+requests
