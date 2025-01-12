@@ -1,5 +1,11 @@
-pandas
-statsmodels
-plotly
-requests
 streamlit
+pandas
+plotly
+psycopg2
+streamlit==1.23.1
+pandas==2.0.3
+plotly==5.14.1
+psycopg2==2.9.7
+statsmodels==0.14.0
+requests==2.31.0
+
