@@ -1,7 +1,7 @@
 streamlit
 pandas
 plotly
-psycopg2
+psycopg2-binary
 streamlit==1.23.1
 pandas==2.0.3
 plotly==5.14.1
