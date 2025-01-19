@@ -1,4 +1,4 @@
-import streamlit as st
+ import streamlit as st
 import requests
 import json
 import pandas as pd
@@ -100,21 +100,7 @@ def main():
     results_df = pd.DataFrame(alpha_beta_results)
     
     # ----- 5) Plotly chart
-    fig = px.scatter(
-        results_df,
-        x="beta",
-        y="alpha",
-        text="msa_name",
-        title="Alpha vs. Beta (Month-over-Month Growth, 2021–2023)",
-        labels={
-            "beta": "Beta (slope vs. National MoM%)",
-            "alpha": "Alpha (intercept, in %)"
-        }
-    )
-    fig.update_traces(textposition='top center')
-    
-    # ----- 6) Display in Streamlit
-    st.plotly_chart(fig, use_container_width=True)
+   
 
 # Streamlit entry point
 if __name__ == "__main__":

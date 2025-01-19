@@ -9,12 +9,12 @@ import datetime
 DB_HOST = "localhost"
 DB_PORT = "5433"
 DB_NAME = "inquire_DB"
-DB_USER = "postgres"
+DB_USER = "postgres"       # changed back to "postgres"
 DB_PASS = "givedata"
 
 # Path to your local GitHub repo folder
-# e.g. "C:/Users/you/Documents/inquire_repo" or "/home/you/projects/inquire"
-LOCAL_REPO_PATH = r"C:/path/to/your/local/github/repo"
+LOCAL_REPO_PATH = r"C:\Users\student\Desktop\InquiRE Python" 
+# Make sure this matches where your local repo actually resides
 
 def export_csv_from_sql():
     """
@@ -28,10 +28,11 @@ def export_csv_from_sql():
         host="localhost",
         port="5433",
         dbname="inquire_DB",
-        user="inquire_DB",
+        user="postgres",
         password="givedata"
     )
-    # 2) Query alpha_beta_results
+
+    # 2) Query alpha_beta_results (use * or specific columns)
     query = """
         SELECT * FROM alpha_beta_results
         ORDER BY series_id
@@ -39,13 +40,13 @@ def export_csv_from_sql():
     df = pd.read_sql(query, conn)
     conn.close()
 
-    # 3) Save as CSV
-    csv_path = os.path.join(LOCAL_REPO_PATH, "data", "alpha_beta_results.csv")
+    # 3) Save as CSV in the "data" folder
+    csv_path = os.path.join(LOCAL_REPO_PATH, "data", "nonfarm_data.csv")
     df.to_csv(csv_path, index=False)
 
     # 4) Commit & push via Git
     os.chdir(LOCAL_REPO_PATH)
-    subprocess.run(["git", "add", "data/alpha_beta_results.csv"])
+    subprocess.run(["git", "add", "data/nonfarm_data.csv"])
     commit_msg = f"Auto-export alpha_beta_results {datetime.datetime.now()}"
     subprocess.run(["git", "commit", "-m", commit_msg])
     subprocess.run(["git", "push", "origin", "main"])

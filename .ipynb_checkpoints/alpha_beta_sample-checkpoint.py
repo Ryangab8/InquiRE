@@ -1,4 +1,4 @@
-import streamlit as st
+ import streamlit as st
 import requests
 import json
 import pandas as pd
@@ -100,21 +100,45 @@ def main():
     results_df = pd.DataFrame(alpha_beta_results)
     
     # ----- 5) Plotly chart
-    fig = px.scatter(
-        results_df,
-        x="beta",
-        y="alpha",
-        text="msa_name",
-        title="Alpha vs. Beta (Month-over-Month Growth, 2021–2023)",
-        labels={
-            "beta": "Beta (slope vs. National MoM%)",
-            "alpha": "Alpha (intercept, in %)"
-        }
-    )
-    fig.update_traces(textposition='top center')
-    
-    # ----- 6) Display in Streamlit
-    st.plotly_chart(fig, use_container_width=True)
+           # Plot the scatter if df_ab is not empty
+        fig = px.scatter(
+            df_ab,
+            x="beta",
+            y="alpha",
+            text="msa_name",
+            hover_data=["r_squared", "series_id"],
+            title=f"Alpha vs. Beta ({start_ym} to {end_ym})",
+            render_mode="webgl"
+        )
+        fig.update_traces(textposition='top center')
+        fig.update_layout(dragmode='pan')
+
+        # Horizontal line at alpha=0
+        fig.add_hline(
+            y=0,
+            line_width=3,
+            line_color="black",
+            line_dash="solid",  
+            annotation_text="Alpha = 0",
+            annotation_position="top left"
+        )
+
+        # Vertical line at beta=1
+        fig.add_vline(
+            x=1,
+            line_width=3,
+            line_color="black",
+            line_dash="dot",
+            annotation_text="Beta = 1",
+            annotation_position="bottom right"
+        )
+
+        # Final display
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            config={"scrollZoom": True}
+        )
 
 # Streamlit entry point
 if __name__ == "__main__":
