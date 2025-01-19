@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import psycopg2
 import plotly.express as px
 import statsmodels.api as sm
 
@@ -105,162 +104,99 @@ metric_choice = st.selectbox(
 )
 
 # ---------------------------------------------------------------------
-# 6) DB Credentials + Setup
+# 6) Load CSV (Remove DB calls)
 # ---------------------------------------------------------------------
-DB_HOST = "localhost"
-DB_PORT = "5433"
-DB_NAME = "inquire_DB"
-DB_USER = "postgres"
-DB_PASS = "givedata"
+CSV_FILE = "nonfarm_data.csv"  # Or "data/nonfarm_data.csv" if in subfolder
 
 NATIONAL_SERIES_ID = "CES0000000001"
 
+# (Optional) Mapping of MSA IDs -> friendly names
 MSA_NAME_MAP = {
     "CES0000000001": "National",
-    "SMS36356200000000001": "NYC Metro",
-    "SMS06310800000000001": "LA Metro",
-    "SMS13120600000000001": "Atlanta",
-    "SMS17169800000000001": "Chicago",
-    "SMS04380600000000001": "Phoenix",
-    "SMS48191000000000001": "Dallas–Fort Worth",
-    "SMS25716540000000001": "Boston",
-    "SMS48264200000000001": "Houston",
-    "SMS06418840000000001": "San Francisco–Oakland",
-    "SMS06401400000000001": "Riverside–San Bernardino",
-    "SMS11479000000000001": "Washington DC",
-    "SMS26198200000000001": "Detroit",
-    "SMS42979610000000001": "Philadelphia",
-    "SMS53426600000000001": "Seattle",
-    "SMS12331000000000001": "Miami",
-    "SMS27334600000000001": "Minneapolis–St. Paul",
-    "SMS06417400000000001": "San Diego",
-    "SMS12453000000000001": "Tampa",
-    "SMS08197400000000001": "Denver",
-    "SMS29411800000000001": "St. Louis",
-    "SMS24925810000000001": "Baltimore",
-    "SMS37167400000000001": "Charlotte",
-    "SMS12367400000000001": "Orlando",
-    "SMS48417000000000001": "San Antonio",
-    "SMS41389000000000001": "Portland",
-    "SMS42383000000000001": "Pittsburgh",
-    "SMS06409000000000001": "Sacramento",
-    "SMS32298200000000001": "Las Vegas",
-    "SMS39171400000000001": "Cincinnati",
-    "SMS20928120000000001": "Kansas City",
-    "SMS18180200000000001": "Columbus",
-    "SMS18269000000000001": "Indianapolis",
-    "SMS39174600000000001": "Cleveland",
-    "SMS06419400000000001": "San Jose",
-    "SMS47349800000000001": "Nashville",
-    "SMS51472600000000001": "Virginia Beach–Norfolk",
-    "SMS44772000000000001": "Providence–Warwick",
-    "SMS55333400000000001": "Milwaukee",
-    "SMS12272600000000001": "Jacksonville",
-    "SMS47328200000000001": "Memphis",
-    "SMS51400600000000001": "Richmond",
-    "SMS40364200000000001": "Oklahoma City",
-    "SMU04380600000000001": "Hartford",
-    "SMS22353800000000001": "New Orleans",
-    "SMS36153800000000001": "Buffalo–Cheektowaga",
-    "SMS37395800000000001": "Raleigh",
-    "SMS01138200000000001": "Birmingham–Hoover",
-    "SMS49416200000000001": "Salt Lake City",
-    "SMS36403800000000001": "Rochester",
-    "SMS21311400000000001": "Louisville"
+    # Add more if desired, else fallback to raw ID
+    # "SMS36356200000000001": "NYC Metro",
+    # "SMS06310800000000001": "LA Metro",
+    # ...
 }
-INVERTED_MAP = {v: k for k, v in MSA_NAME_MAP.items()}
 
-# ---------------------------------------------------------------------
-# 7) XY Chart
-# ---------------------------------------------------------------------
-def fetch_raw_data_multiple(msa_ids, start_ym, end_ym):
-    if NATIONAL_SERIES_ID not in msa_ids:
-        msa_ids.append(NATIONAL_SERIES_ID)
-
-    start_date_str = f"{start_ym}-01"
-    end_date_str   = f"{end_ym}-01"
-
-    placeholders = ",".join(["%s"] * len(msa_ids))
-    sql = f"""
-        SELECT series_id, obs_date, value
-        FROM raw_nonfarm_jobs
-        WHERE series_id IN ({placeholders})
-          AND obs_date >= %s
-          AND obs_date <= %s
-        ORDER BY obs_date
-    """
-    params = msa_ids + [start_date_str, end_date_str]
-
-    conn = psycopg2.connect(
-        host=DB_HOST, port=DB_PORT,
-        dbname=DB_NAME, user=DB_USER,
-        password=DB_PASS
-    )
-    cur = conn.cursor()
-    cur.execute(sql, params)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    df = pd.DataFrame(rows, columns=["series_id", "obs_date", "value"])
-    df["obs_date"] = pd.to_datetime(df["obs_date"])
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+@st.cache_data
+def load_data():
+    """Load CSV data with columns [date, series_id, value]."""
+    df = pd.read_csv(CSV_FILE)
+    # Ensure 'date' is datetime
+    df["date"] = pd.to_datetime(df["date"])
+    df.sort_values(["series_id","date"], inplace=True)
     return df
 
-def compute_multi_alpha_beta(df_raw):
-    df_raw["value"] = df_raw["value"].astype(float)
-    df_pivot = df_raw.pivot(index="obs_date", columns="series_id", values="value")
-    df_growth = df_pivot.pct_change(1) * 100
+df_raw_csv = load_data()
+
+# ---------------------------------------------------------------------
+# 7) XY Chart (Alpha/Beta)
+# ---------------------------------------------------------------------
+def compute_alpha_beta_XY(chosen_msas, start_ym, end_ym):
+    # 1) Pivot data => columns=series_id, index=date, values=value
+    df_pivot = df_raw_csv.pivot(index="date", columns="series_id", values="value")
+
+    # 2) Filter date range
+    start_date = pd.to_datetime(f"{start_ym}-01")
+    end_date   = pd.to_datetime(f"{end_ym}-01")
+    df_pivot = df_pivot.loc[(df_pivot.index >= start_date) & (df_pivot.index <= end_date)]
+
+    # 3) Compute MoM % change
+    df_growth = df_pivot.pct_change(1)*100
     df_growth.dropna(inplace=True)
 
     if NATIONAL_SERIES_ID not in df_growth.columns:
+        st.error(f"National series '{NATIONAL_SERIES_ID}' not found in CSV. Check your data.")
         return pd.DataFrame()
 
     results = []
-    for col in df_growth.columns:
-        if col == NATIONAL_SERIES_ID:
+    for msa_id in chosen_msas:
+        if msa_id == NATIONAL_SERIES_ID:
             continue
-        merged = df_growth[[NATIONAL_SERIES_ID, col]].dropna()
-        if merged.shape[0] < 2:
+        if msa_id not in df_growth.columns:
+            # Possibly not in this date range
+            continue
+        merged = df_growth[[NATIONAL_SERIES_ID, msa_id]].dropna()
+        if merged.empty:
             continue
         X = sm.add_constant(merged[NATIONAL_SERIES_ID])
-        y = merged[col]
+        y = merged[msa_id]
         model = sm.OLS(y, X).fit()
         alpha = model.params["const"]
         beta  = model.params[NATIONAL_SERIES_ID]
-        r_sq  = model.rsquared
         results.append({
-            "series_id": col,
+            "msa_id": msa_id,
+            "Metro": MSA_NAME_MAP.get(msa_id, msa_id),
             "Alpha": alpha,
-            "Beta": beta,
-            "R-Squared": r_sq
+            "Beta": beta
         })
-    df_ab = pd.DataFrame(results)
-    df_ab["Metro"] = df_ab["series_id"].apply(lambda sid: MSA_NAME_MAP.get(sid, sid))
-    df_ab.drop(columns=["series_id"], inplace=True)
-    df_ab = df_ab[["Metro", "Alpha", "Beta", "R-Squared"]]
-    return df_ab
+    return pd.DataFrame(results)
 
 def select_all():
-    st.session_state["msa_selection"] = sorted(INVERTED_MAP.keys())
+    unique_ids = sorted(df_raw_csv["series_id"].unique())
+    st.session_state["msa_selection"] = unique_ids
 
 def clear_all():
     st.session_state["msa_selection"] = []
 
 if "msa_selection" not in st.session_state:
     st.session_state["msa_selection"] = []
+
 if "df_ab" not in st.session_state:
     st.session_state["df_ab"] = None
+
 if "fig" not in st.session_state:
     st.session_state["fig"] = None
 
 st.markdown("### XY Chart (Alpha vs. Beta)")
 
-all_msa_names = sorted(INVERTED_MAP.keys())
+# All unique IDs in CSV
+all_unique_msas = sorted(df_raw_csv["series_id"].unique())
 
 st.multiselect(
     "Pick MSA(s):",
-    options=all_msa_names,
+    options=all_unique_msas,
     key="msa_selection"
 )
 
@@ -274,9 +210,11 @@ months = [
 ]
 years_xy = list(range(1990, 2025))
 default_start_year = 2019
+default_end_year   = 2024
+
+# Locate the indexes for default years
 default_start_index = years_xy.index(default_start_year)
-default_end_year = 2024
-default_end_index = years_xy.index(default_end_year)
+default_end_index   = years_xy.index(default_end_year)
 
 st.write("#### Date Range for XY Chart")
 col_s1, col_s2 = st.columns(2)
@@ -304,40 +242,23 @@ if st.button("Generate XY Chart"):
     if not st.session_state["msa_selection"]:
         st.warning("No MSAs selected!")
     else:
-        chosen_ids = [INVERTED_MAP[m] for m in st.session_state["msa_selection"]]
-        df_raw = fetch_raw_data_multiple(chosen_ids, xy_start_ym, xy_end_ym)
-        if df_raw.empty:
-            st.warning("No data found for that range. Check inputs.")
+        df_ab = compute_alpha_beta_XY(st.session_state["msa_selection"], xy_start_ym, xy_end_ym)
+        if df_ab.empty:
+            st.error("No alpha/beta results. Possibly no overlapping data with national.")
         else:
-            df_ab = compute_multi_alpha_beta(df_raw)
-            if df_ab.empty:
-                st.error("Could not compute alpha/beta. Possibly no overlapping data with national.")
-            else:
-                title_xy = f"Alpha vs. Beta ({xy_start_ym} to {xy_end_ym})"
-                fig_xy = px.scatter(
-                    df_ab,
-                    x="Beta",
-                    y="Alpha",
-                    text="Metro",
-                    title=title_xy,
-                    render_mode="webgl"
-                )
-                fig_xy.update_traces(textposition='top center', textfont_size=14)
-                fig_xy.update_layout(
-                    dragmode='pan',
-                    title_x=0.5,
-                    title_xanchor='center'
-                )
-                fig_xy.add_hline(
-                    y=0, line_width=3, line_color="black", line_dash="dot",
-                    annotation_text="Alpha = 0", annotation_position="top left"
-                )
-                fig_xy.add_vline(
-                    x=1, line_width=3, line_color="black", line_dash="dot",
-                    annotation_text="Beta = 1", annotation_position="bottom right"
-                )
-                st.session_state["df_ab"] = df_ab
-                st.session_state["fig"]   = fig_xy
+            fig_xy = px.scatter(
+                df_ab,
+                x="Beta",
+                y="Alpha",
+                text="Metro",
+                title=f"Alpha vs. Beta ({xy_start_ym} to {xy_end_ym})",
+                labels={"Beta": "Beta", "Alpha": "Alpha"}
+            )
+            fig_xy.update_traces(textposition='top center', textfont_size=14)
+            fig_xy.update_layout(dragmode='pan', title_x=0.5, title_xanchor='center')
+
+            st.session_state["df_ab"] = df_ab
+            st.session_state["fig"]   = fig_xy
 
 if st.session_state["fig"] is not None:
     st.plotly_chart(
@@ -355,13 +276,15 @@ st.markdown("### Time Series (Rolling Alpha/Beta)")
 
 if "df_ts" not in st.session_state:
     st.session_state["df_ts"] = None
+
 if "fig_ts" not in st.session_state:
     st.session_state["fig_ts"] = None
 
-all_msa_names_no_nat = [m for m in all_msa_names if m != "National"]
+all_msas_no_national = [m for m in all_unique_msas if m != NATIONAL_SERIES_ID]
+
 selected_time_msas = st.multiselect(
     "Pick up to 5 MSAs for Time Series:",
-    options=all_msa_names_no_nat,
+    options=all_msas_no_national,
     max_selections=5
 )
 
@@ -392,88 +315,82 @@ ts_emonth_num = months.index(ts_end_month) + 1
 ts_start_ym = f"{ts_start_year:04d}-{ts_smonth_num:02d}"
 ts_end_ym   = f"{ts_end_year:04d}-{ts_emonth_num:02d}"
 
-def compute_alpha_beta_subset(df_subset, nat_col, msa_col):
-    if len(df_subset.dropna()) < 2:
+def compute_alpha_beta_subset(df_window, nat_col, msa_col):
+    """OLS of MSA vs. National in that rolling subset."""
+    if len(df_window.dropna()) < 2:
         return None, None
-    X = sm.add_constant(df_subset[nat_col])
-    y = df_subset[msa_col]
+    X = sm.add_constant(df_window[nat_col])
+    y = df_window[msa_col]
     model = sm.OLS(y, X).fit()
-    return model.params["const"], model.params[nat_col]
+    alpha = model.params["const"]
+    beta  = model.params[nat_col]
+    return alpha, beta
 
-def compute_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
-    df_pivot = df_raw_ts.pivot(index="obs_date", columns="series_id", values="value")
-    df_growth = df_pivot.pct_change(1) * 100
+def compute_time_series_rolling_alpha_beta(msa_ids, start_ym_ts, end_ym_ts):
+    """Compute rolling alpha/beta for each monthly date up to that month."""
+    df_pivot = df_raw_csv.pivot(index="date", columns="series_id", values="value")
+    # Filter date range
+    start_dt = pd.to_datetime(f"{start_ym_ts}-01")
+    end_dt   = pd.to_datetime(f"{end_ym_ts}-01")
+    df_pivot = df_pivot.loc[(df_pivot.index >= start_dt) & (df_pivot.index <= end_dt)]
+
+    # MoM growth
+    df_growth = df_pivot.pct_change(1)*100
     df_growth.dropna(inplace=True)
-
     if NATIONAL_SERIES_ID not in df_growth.columns:
         return pd.DataFrame()
 
-    start_date_ts = pd.to_datetime(f"{start_ym_ts}-01")
-    end_date_ts   = pd.to_datetime(f"{end_ym_ts}-01")
-    df_growth = df_growth.loc[(df_growth.index >= start_date_ts) & (df_growth.index <= end_date_ts)]
+    unique_months = sorted(df_growth.index.unique())
+    results = []
 
-    unique_months_ts = sorted(df_growth.index.unique())
-    results_ts = []
-
-    for current_month in unique_months_ts:
+    for current_month in unique_months:
+        # subset from earliest date up to current_month
         df_window = df_growth.loc[df_growth.index <= current_month]
-        for msa_col in df_growth.columns:
-            if msa_col == NATIONAL_SERIES_ID:
+        for msa in msa_ids:
+            if msa == NATIONAL_SERIES_ID or msa not in df_growth.columns:
                 continue
-            data_subset = df_window[[NATIONAL_SERIES_ID, msa_col]].dropna()
-            alpha_val, beta_val = compute_alpha_beta_subset(data_subset, NATIONAL_SERIES_ID, msa_col)
+            alpha_val, beta_val = compute_alpha_beta_subset(df_window[[NATIONAL_SERIES_ID, msa]], NATIONAL_SERIES_ID, msa)
             if alpha_val is not None and beta_val is not None:
-                results_ts.append({
-                    "obs_date": current_month,
-                    "series_id": msa_col,
+                results.append({
+                    "Date": current_month,
+                    "Metro": MSA_NAME_MAP.get(msa, msa),
                     "alpha": alpha_val,
                     "beta": beta_val
                 })
-
-    df_ts = pd.DataFrame(results_ts)
-    return df_ts
+    return pd.DataFrame(results)
 
 if st.button("Compute Time Series"):
     if not selected_time_msas:
         st.warning("Pick at least 1 MSA (up to 5).")
     else:
-        chosen_time_ids = [INVERTED_MAP[n] for n in selected_time_msas]
-        df_raw_ts = fetch_raw_data_multiple(chosen_time_ids, ts_start_ym, ts_end_ym)
-        if df_raw_ts.empty:
-            st.warning("No data found for that time range. Check inputs.")
+        df_ts_result = compute_time_series_rolling_alpha_beta(selected_time_msas, ts_start_ym, ts_end_ym)
+        if df_ts_result.empty:
+            st.warning("Could not compute time-series alpha/beta. Possibly insufficient overlapping data.")
         else:
-            df_ts_result = compute_alpha_beta_time_series(df_raw_ts, ts_start_ym, ts_end_ym)
-            if df_ts_result.empty:
-                st.warning("Could not compute time-series alpha/beta. Possibly insufficient data.")
-            else:
-                # Create "Metro" and reorder columns
-                df_ts_result["Metro"] = df_ts_result["series_id"].apply(lambda sid: MSA_NAME_MAP.get(sid, sid))
-                # Drop the original series_id column and rename obs_date → "Date"
-                df_ts_result.drop(columns=["series_id"], inplace=True)
-                df_ts_result.rename(columns={"obs_date": "Date"}, inplace=True)
-                # Reorder columns: Date, Metro, alpha, beta
-                df_ts_result = df_ts_result[["Date", "Metro", "alpha", "beta"]]
+            # Reorder columns: Date, Metro, alpha, beta
+            df_ts_result = df_ts_result[["Date","Metro","alpha","beta"]]
+            st.session_state["df_ts"] = df_ts_result
 
-                st.session_state["df_ts"] = df_ts_result
+            # For plotting, pick the user-chosen metric (alpha or beta)
+            df_plot = df_ts_result.copy()
+            df_plot["AB_Chosen"] = df_plot[ab_choice]
 
-                df_plot = df_ts_result.copy()
-                df_plot["AB_Chosen"] = df_plot[ab_choice]
-                title_ts = f"Time Series of {ab_choice.title()} ({ts_start_ym} to {ts_end_ym})"
-                fig_ts = px.line(
-                    df_plot,
-                    x="Date",
-                    y="AB_Chosen",
-                    color="Metro",
-                    title=title_ts
-                )
-                fig_ts.update_layout(
-                    dragmode='pan',
-                    xaxis_title="Date",
-                    yaxis_title=ab_choice.title(),
-                    title_x=0.5,
-                    title_xanchor="center"
-                )
-                st.session_state["fig_ts"] = fig_ts
+            title_ts = f"Time Series of {ab_choice.title()} ({ts_start_ym} to {ts_end_ym})"
+            fig_ts = px.line(
+                df_plot,
+                x="Date",
+                y="AB_Chosen",
+                color="Metro",
+                title=title_ts
+            )
+            fig_ts.update_layout(
+                dragmode='pan',
+                xaxis_title="Date",
+                yaxis_title=ab_choice.title(),
+                title_x=0.5,
+                title_xanchor="center"
+            )
+            st.session_state["fig_ts"] = fig_ts
 
 if st.session_state["fig_ts"] is not None:
     st.plotly_chart(
