@@ -106,7 +106,7 @@ metric_choice = st.selectbox(
 # ---------------------------------------------------------------------
 # 6) Load CSV (Remove DB calls)
 # ---------------------------------------------------------------------
-CSV_FILE = "nonfarm_data.csv"  # Or "data/nonfarm_data.csv" if in subfolder
+CSV_FILE = "data/nonfarm_data.csv"  # <---- CHANGED HERE (in subfolder)
 
 NATIONAL_SERIES_ID = "CES0000000001"
 
