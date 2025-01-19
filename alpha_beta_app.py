@@ -80,7 +80,7 @@ with st.expander("About the Data", expanded=False):
 with st.expander("How To Use", expanded=False):
     st.markdown(
         """
-        **Step 1:** Select the desired metric from the dropdown below (currently only one option).  
+        **Select the desired metric from the dropdown below (currently only one option).**   
 
         **XY Chart (Alpha vs. Beta)**  
         1. Pick MSA(s) from the dropdown, or click “Select All” to include the top 50 MSAs.  
