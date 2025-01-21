@@ -63,7 +63,7 @@ with st.expander("About the Data", expanded=False):
         """
         **Data Source**  
         - All data is publicly available from the Bureau of Labor Statistics (BLS).  
-        - This tool currently features the top 50 U.S. MSAs (Metro Statistical Area) by population, plus a “National” benchmark.
+        - This tool currently features the top 50 U.S. MSAs (Metropolitan Statistical Area) by population, plus a “National” benchmark.
 
         **Alpha**  
         - Alpha measures an MSA’s growth rate relative to the national average.  
