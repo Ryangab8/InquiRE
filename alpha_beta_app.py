@@ -66,7 +66,7 @@ with st.expander("About the Data", expanded=False):
         - This tool currently features the top 50 U.S. MSAs (Metropolitan Statistical Area) by population, plus a “National” benchmark.
 
         **Alpha**  
-        - Alpha measures an MSA’s growth rate relative to the national average.  
+        - Alpha measures a MSA’s growth rate relative to the national average.  
         - A positive alpha means the MSA outperforms the nation; a negative alpha means it underperforms.  
         - For instance, an alpha of +1.5 implies the MSA grew about 1.5% faster than the national rate over the chosen period.
 
