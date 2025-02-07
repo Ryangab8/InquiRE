@@ -7,7 +7,7 @@ import datetime
 # ---------------------------------------------------------------------
 # 1) Wide Mode + Page Title
 # ---------------------------------------------------------------------
-st.set_page_config(layout="wide", page_title="US Metro Alpha/Beta Analysis")
+st.set_page_config(layout="wide", page_title="US Metro Alpha/Beta Analysis (Rolling Window)")
 
 # ---------------------------------------------------------------------
 # 2) Custom CSS
@@ -53,7 +53,7 @@ st.markdown(
 # ---------------------------------------------------------------------
 # 3) Main Title
 # ---------------------------------------------------------------------
-st.title("US Metro Alpha/Beta Analysis")
+st.title("US Metro Alpha/Beta Analysis (Rolling Window)")
 
 # ---------------------------------------------------------------------
 # 4) Expanders with Descriptive Text
@@ -74,13 +74,17 @@ with st.expander("About the Data", expanded=False):
         - Beta measures how sensitive (or volatile) an MSA is relative to the nation’s changes.  
         - If beta = 1, the MSA moves in sync with the national trend.  
         - A beta > 1 indicates greater volatility (e.g., 1.5 → 50% larger swings), while a beta < 1 indicates less volatility (e.g., 0.5 → half as volatile).
+
+        **Note on Rolling Time Series**  
+        - This app now uses a 12-month rolling window for time-series alpha/beta.  
+        - Each monthly alpha/beta is calculated from that month and the previous 11 months only, making the series more responsive to newer data.
         """
     )
 
 with st.expander("How To Use", expanded=False):
     st.markdown(
         """
-        **Select the desired metric from the dropdown below (currently only one option).**   
+        **Select the desired metric from the dropdown below (currently only one option).**  
 
         **XY Chart (Alpha vs. Beta)**  
         1. Pick MSA(s) from the dropdown, or click “Select All” to include the top 50 MSAs.  
@@ -90,7 +94,8 @@ with st.expander("How To Use", expanded=False):
         **Time Series (Rolling Alpha/Beta Over the Selected Date Range)**  
         1. Select up to 5 MSAs (excluding “National,” which is the benchmark).  
         2. Pick Alpha or Beta to track, plus a separate date range.  
-        3. Click “Compute Time Series.” See how alpha or beta evolves month by month.  
+        3. Click “Compute Time Series.”  
+        4. Each month’s alpha or beta is calculated from that month and the prior 11 months only, forming a 12-month rolling window.
         """
     )
 
@@ -103,7 +108,7 @@ metric_choice = st.selectbox(
 )
 
 # ---------------------------------------------------------------------
-# 6) Load CSV from GitHub (instead of DB)
+# 6) Load CSV from GitHub (or local DB)
 # ---------------------------------------------------------------------
 github_csv_url = "https://raw.githubusercontent.com/Ryangab8/InquiRE/main/raw_nonfarm_jobs.csv"
 df_full = pd.read_csv(github_csv_url)
@@ -170,9 +175,12 @@ MSA_NAME_MAP = {
 INVERTED_MAP = {v: k for k, v in MSA_NAME_MAP.items()}
 
 # ---------------------------------------------------------------------
-# Utility Functions for XY and Time Series
+# Utility Functions for XY and Rolling Time Series
 # ---------------------------------------------------------------------
 def fetch_raw_data_multiple(msa_ids, start_ym, end_ym):
+    """
+    Fetch filtered data for the specified MSA IDs and date range.
+    """
     if NATIONAL_SERIES_ID not in msa_ids:
         msa_ids.append(NATIONAL_SERIES_ID)
 
@@ -190,6 +198,10 @@ def fetch_raw_data_multiple(msa_ids, start_ym, end_ym):
     return df_filtered
 
 def compute_multi_alpha_beta(df_raw):
+    """
+    Computes alpha and beta for each MSA vs. the national benchmark
+    over the entire date range of df_raw (expanding approach).
+    """
     df_raw["value"] = pd.to_numeric(df_raw["value"], errors="coerce")
     df_pivot = df_raw.pivot(index="obs_date", columns="series_id", values="value")
     df_growth = df_pivot.pct_change(1) * 100
@@ -229,6 +241,10 @@ def compute_multi_alpha_beta(df_raw):
     return df_ab
 
 def compute_alpha_beta_subset(df_subset, nat_col, msa_col):
+    """
+    Helper function to compute alpha/beta for a given subset.
+    Returns (alpha, beta) or (None, None) if insufficient data.
+    """
     if len(df_subset.dropna()) < 2:
         return None, None
     X = sm.add_constant(df_subset[nat_col])
@@ -236,7 +252,20 @@ def compute_alpha_beta_subset(df_subset, nat_col, msa_col):
     model = sm.OLS(y, X).fit()
     return model.params["const"], model.params[nat_col]
 
-def compute_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
+# ---------------------------------------------------------------------
+# Rolling Time Series Function (12-month lookback)
+# ---------------------------------------------------------------------
+
+ROLLING_WINDOW_MONTHS = 12
+
+def compute_rolling_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
+    """
+    1) Pivot MSA data -> monthly values
+    2) Compute month-to-month % changes
+    3) For each month in [start_ym_ts, end_ym_ts], take the *prior 11 months + current month*
+       (12-month window) and run an OLS regression vs. National growth.
+    4) Return a DataFrame of (obs_date, series_id, alpha, beta).
+    """
     df_pivot = df_raw_ts.pivot(index="obs_date", columns="series_id", values="value")
     df_growth = df_pivot.pct_change(1) * 100
     df_growth.dropna(inplace=True)
@@ -246,13 +275,29 @@ def compute_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
 
     start_dt = pd.to_datetime(f"{start_ym_ts}-01")
     end_dt   = pd.to_datetime(f"{end_ym_ts}-01")
-    df_growth = df_growth.loc[(df_growth.index >= start_dt) & (df_growth.index <= end_dt)]
 
+    # We'll consider the full range (in case we need earlier months to form a 12-month window),
+    # but we only output results for [start_dt, end_dt].
     unique_months_ts = sorted(df_growth.index.unique())
+
     results_ts = []
 
+    # For each monthly date in the entire dataset, we'll see if it's within [start_dt, end_dt].
     for current_month in unique_months_ts:
-        df_window = df_growth.loc[df_growth.index <= current_month]
+        if current_month < start_dt or current_month > end_dt:
+            continue
+
+        # Compute the start of the rolling window (12 months inclusive).
+        rolling_start = current_month - pd.DateOffset(months=ROLLING_WINDOW_MONTHS - 1)
+
+        # The window is [rolling_start, current_month].
+        df_window = df_growth.loc[(df_growth.index >= rolling_start) & (df_growth.index <= current_month)]
+        
+        # If the window doesn't have enough data points, skip it.
+        # (At minimum, you'd want 2 data points for a regression, but we typically want up to 12 months.)
+        if len(df_window) < 2:
+            continue
+
         for msa_col in df_growth.columns:
             if msa_col == NATIONAL_SERIES_ID:
                 continue
@@ -265,6 +310,7 @@ def compute_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
                     "alpha": alpha_val,
                     "beta": beta_val
                 })
+
     return pd.DataFrame(results_ts)
 
 # ---------------------------------------------------------------------
@@ -366,7 +412,7 @@ if st.session_state["fig"] is not None:
 # ---------------------------------------------------------------------
 # 8) TIME SERIES (Rolling Alpha/Beta)
 # ---------------------------------------------------------------------
-st.markdown("### Time Series (Rolling Alpha/Beta)")
+st.markdown("### Time Series (Rolling 12-Month Alpha/Beta)")
 
 if "df_ts" not in st.session_state:
     st.session_state["df_ts"] = None
@@ -385,7 +431,7 @@ ab_choice = st.selectbox("Which metric to graph in the Time Series?", ["alpha", 
 ts_default_start_year = 2019
 ts_default_end_year   = 2024
 
-st.write("#### Date Range for Time Series")
+st.write("#### Date Range for Time Series (Rolling Window)")
 col_t1, col_t2 = st.columns(2)
 with col_t1:
     ts_start_month = st.selectbox("Start Month (Time Series)", months, index=0)
@@ -404,11 +450,14 @@ if st.button("Compute Time Series"):
         st.warning("Pick at least 1 MSA (up to 5).")
     else:
         chosen_time_ids = [INVERTED_MAP[n] for n in selected_time_msas]
-        df_raw_ts = fetch_raw_data_multiple(chosen_time_ids, ts_start_ym, ts_end_ym)
+        # Fetch data that possibly includes months before ts_start_ym
+        # so we can calculate a full 12-month window at ts_start_ym.
+        # But for simplicity, let's fetch from 1990 or earlier. Adjust if needed.
+        df_raw_ts = fetch_raw_data_multiple(chosen_time_ids, "1990-01", ts_end_ym)
         if df_raw_ts.empty:
-            st.warning("No data found for that range. Check your CSV or chosen date range.")
+            st.warning("No data found. Check your CSV or chosen date range.")
         else:
-            df_ts_result = compute_alpha_beta_time_series(df_raw_ts, ts_start_ym, ts_end_ym)
+            df_ts_result = compute_rolling_alpha_beta_time_series(df_raw_ts, ts_start_ym, ts_end_ym)
             if df_ts_result.empty:
                 st.warning("Could not compute time-series alpha/beta. Possibly insufficient data.")
             else:
@@ -421,7 +470,7 @@ if st.button("Compute Time Series"):
 
                 df_plot = df_ts_result.copy()
                 df_plot["AB_Chosen"] = df_plot[ab_choice]
-                title_ts = f"Time Series of {ab_choice.title()} ({ts_start_ym} to {ts_end_ym})"
+                title_ts = f"Time Series of {ab_choice.title()} (Rolling 12-Month) {ts_start_ym}–{ts_end_ym}"
                 fig_ts = px.line(
                     df_plot,
                     x="Date",
