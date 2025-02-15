@@ -519,4 +519,3 @@ if st.session_state["fig_ts"] is not None:
             </button>
         """
         st.markdown(copy_button_html_ts, unsafe_allow_html=True)
-
