@@ -294,7 +294,6 @@ def compute_rolling_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
         df_window = df_growth.loc[(df_growth.index >= rolling_start) & (df_growth.index <= current_month)]
         
         # If the window doesn't have enough data points, skip it.
-        # (At minimum, you'd want 2 data points for a regression, but we typically want up to 12 months.)
         if len(df_window) < 2:
             continue
 
@@ -409,6 +408,19 @@ if st.session_state["fig"] is not None:
     if st.checkbox("View alpha/beta table for XY chart"):
         st.dataframe(st.session_state["df_ab"])
 
+        # ---------------------------
+        # Copy-to-Clipboard Button
+        # ---------------------------
+        df_ab_csv_str = st.session_state["df_ab"].to_csv(index=False)
+        # Escape backticks and newlines for safe embedding in JS
+        df_ab_csv_str = df_ab_csv_str.replace("`", "\\`").replace("\n", "\\n")
+        copy_button_html = f"""
+            <button onclick="navigator.clipboard.writeText(`{df_ab_csv_str}`)">
+                Copy Table to Clipboard
+            </button>
+        """
+        st.markdown(copy_button_html, unsafe_allow_html=True)
+
 # ---------------------------------------------------------------------
 # 8) TIME SERIES (Rolling Alpha/Beta)
 # ---------------------------------------------------------------------
@@ -452,7 +464,6 @@ if st.button("Compute Time Series"):
         chosen_time_ids = [INVERTED_MAP[n] for n in selected_time_msas]
         # Fetch data that possibly includes months before ts_start_ym
         # so we can calculate a full 12-month window at ts_start_ym.
-        # But for simplicity, let's fetch from 1990 or earlier. Adjust if needed.
         df_raw_ts = fetch_raw_data_multiple(chosen_time_ids, "1990-01", ts_end_ym)
         if df_raw_ts.empty:
             st.warning("No data found. Check your CSV or chosen date range.")
@@ -495,3 +506,17 @@ if st.session_state["fig_ts"] is not None:
     )
     if st.checkbox("Show time-series data table"):
         st.dataframe(st.session_state["df_ts"])
+
+        # ---------------------------
+        # Copy-to-Clipboard Button
+        # ---------------------------
+        df_ts_csv_str = st.session_state["df_ts"].to_csv(index=False)
+        # Escape backticks and newlines
+        df_ts_csv_str = df_ts_csv_str.replace("`", "\\`").replace("\n", "\\n")
+        copy_button_html_ts = f"""
+            <button onclick="navigator.clipboard.writeText(`{df_ts_csv_str}`)">
+                Copy Time-Series Table to Clipboard
+            </button>
+        """
+        st.markdown(copy_button_html_ts, unsafe_allow_html=True)
+
