@@ -95,7 +95,12 @@ with st.expander("How To Use", expanded=False):
         1. Select up to 5 MSAs (excluding “National,” which is the benchmark).  
         2. Pick Alpha or Beta to track, plus a separate date range.  
         3. Click “Compute Time Series.”  
-        4. Each month’s alpha or beta is calculated from that month and the prior 11 months only, forming a 12-month rolling window.
+        4. Each month’s alpha/beta is calculated from that month and the prior 11 months only, forming a 12-month rolling window.
+
+        **Scenario Analysis**  
+        - Enter a 5-year (or longer) historical date range so we have enough data to compute alpha/beta.  
+        - Input up to 3 hypothetical national growth scenarios.  
+        - See the resulting MSA growth predictions for each scenario in a new XY chart, plus a confidence note using R-squared.
         """
     )
 
@@ -175,7 +180,7 @@ MSA_NAME_MAP = {
 INVERTED_MAP = {v: k for k, v in MSA_NAME_MAP.items()}
 
 # ---------------------------------------------------------------------
-# Utility Functions for XY and Rolling Time Series
+# Utility Functions
 # ---------------------------------------------------------------------
 def fetch_raw_data_multiple(msa_ids, start_ym, end_ym):
     """
@@ -252,10 +257,7 @@ def compute_alpha_beta_subset(df_subset, nat_col, msa_col):
     model = sm.OLS(y, X).fit()
     return model.params["const"], model.params[nat_col]
 
-# ---------------------------------------------------------------------
-# Rolling Time Series Function (12-month lookback)
-# ---------------------------------------------------------------------
-
+# Rolling time-series function (12-month lookback)
 ROLLING_WINDOW_MONTHS = 12
 
 def compute_rolling_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
@@ -275,26 +277,14 @@ def compute_rolling_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
 
     start_dt = pd.to_datetime(f"{start_ym_ts}-01")
     end_dt   = pd.to_datetime(f"{end_ym_ts}-01")
-
-    # We'll consider the full range (in case we need earlier months to form a 12-month window),
-    # but we only output results for [start_dt, end_dt].
     unique_months_ts = sorted(df_growth.index.unique())
 
     results_ts = []
-
-    # For each monthly date in the entire dataset, we'll see if it's within [start_dt, end_dt].
     for current_month in unique_months_ts:
         if current_month < start_dt or current_month > end_dt:
             continue
-
-        # Compute the start of the rolling window (12 months inclusive).
         rolling_start = current_month - pd.DateOffset(months=ROLLING_WINDOW_MONTHS - 1)
-
-        # The window is [rolling_start, current_month].
         df_window = df_growth.loc[(df_growth.index >= rolling_start) & (df_growth.index <= current_month)]
-        
-        # If the window doesn't have enough data points, skip it.
-        # (At minimum, you'd want 2 data points for a regression, but we typically want up to 12 months.)
         if len(df_window) < 2:
             continue
 
@@ -310,7 +300,6 @@ def compute_rolling_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
                     "alpha": alpha_val,
                     "beta": beta_val
                 })
-
     return pd.DataFrame(results_ts)
 
 # ---------------------------------------------------------------------
@@ -450,9 +439,7 @@ if st.button("Compute Time Series"):
         st.warning("Pick at least 1 MSA (up to 5).")
     else:
         chosen_time_ids = [INVERTED_MAP[n] for n in selected_time_msas]
-        # Fetch data that possibly includes months before ts_start_ym
-        # so we can calculate a full 12-month window at ts_start_ym.
-        # But for simplicity, let's fetch from 1990 or earlier. Adjust if needed.
+        # We'll fetch from 1990-01 to ensure we have enough history for a 12-month rolling window:
         df_raw_ts = fetch_raw_data_multiple(chosen_time_ids, "1990-01", ts_end_ym)
         if df_raw_ts.empty:
             st.warning("No data found. Check your CSV or chosen date range.")
@@ -495,3 +482,127 @@ if st.session_state["fig_ts"] is not None:
     )
     if st.checkbox("Show time-series data table"):
         st.dataframe(st.session_state["df_ts"])
+
+# ---------------------------------------------------------------------
+# 9) SCENARIO ANALYSIS
+# ---------------------------------------------------------------------
+st.markdown("### Scenario Analysis (Alpha/Beta Forecast)")
+
+st.write("Enter a date range **of at least 5 years** to compute alpha/beta for each MSA, then input up to 3 national growth scenarios.")
+
+# MSA selection for scenario analysis
+scenario_msa = st.multiselect(
+    "Pick MSA(s) for Scenario Analysis",
+    options=all_msa_names,
+    help="Pick one or many MSAs to see how they might perform under custom national growth scenarios."
+)
+
+# Date range selection (must be >= 5 years)
+scenario_years = list(range(1990, 2030))
+default_scenario_start = 2018
+default_scenario_end   = 2023
+
+col_sa1, col_sa2 = st.columns(2)
+with col_sa1:
+    sc_start_month = st.selectbox("Scenario Start Month", months, index=0)
+    sc_start_year  = st.selectbox("Scenario Start Year", scenario_years, index=scenario_years.index(default_scenario_start))
+with col_sa2:
+    sc_end_month = st.selectbox("Scenario End Month", months, index=11)
+    sc_end_year  = st.selectbox("Scenario End Year", scenario_years, index=scenario_years.index(default_scenario_end))
+
+sc_smonth_num = months.index(sc_start_month) + 1
+sc_emonth_num = months.index(sc_end_month) + 1
+sc_start_ym   = f"{sc_start_year:04d}-{sc_smonth_num:02d}"
+sc_end_ym     = f"{sc_end_year:04d}-{sc_emonth_num:02d}"
+
+# Text inputs for up to 3 national growth scenarios
+st.write("#### Enter up to 3 hypothetical national growth rates (in %):")
+scenario_1 = st.text_input("Scenario #1 (e.g., 1.0)", value="1.0")
+scenario_2 = st.text_input("Scenario #2 (optional)", value="2.5")
+scenario_3 = st.text_input("Scenario #3 (optional)", value="4.0")
+
+if st.button("Run Scenario Analysis"):
+    # Validate date range
+    start_dt = datetime.datetime(sc_start_year, sc_smonth_num, 1)
+    end_dt   = datetime.datetime(sc_end_year, sc_emonth_num, 1)
+    total_months = (end_dt.year - start_dt.year)*12 + (end_dt.month - start_dt.month)
+    if total_months < 60:  # roughly 5 years in months
+        st.error("Please select at least a 5-year range for scenario analysis.")
+    elif not scenario_msa:
+        st.warning("No MSAs selected for scenario analysis.")
+    else:
+        # Convert scenario inputs to floats (ignore empty fields)
+        def parse_float_safe(x):
+            try:
+                return float(x)
+            except:
+                return None
+        
+        s1 = parse_float_safe(scenario_1)
+        s2 = parse_float_safe(scenario_2)
+        s3 = parse_float_safe(scenario_3)
+        scenario_vals = [(f"Scenario #1 ({s1}%)", s1) if s1 is not None else None,
+                         (f"Scenario #2 ({s2}%)", s2) if s2 is not None else None,
+                         (f"Scenario #3 ({s3}%)", s3) if s3 is not None else None]
+        scenario_vals = [sv for sv in scenario_vals if sv and sv[1] is not None]
+
+        if not scenario_vals:
+            st.error("Please enter at least one valid scenario growth rate (numeric).")
+        else:
+            chosen_scenario_ids = [INVERTED_MAP[m] for m in scenario_msa]
+            df_raw_scenario = fetch_raw_data_multiple(chosen_scenario_ids, sc_start_ym, sc_end_ym)
+            if df_raw_scenario.empty:
+                st.warning("No data found for that scenario range. Check your CSV or chosen date range.")
+            else:
+                df_ab_scenario = compute_multi_alpha_beta(df_raw_scenario)
+                if df_ab_scenario.empty:
+                    st.error("Could not compute alpha/beta for scenarios. Possibly insufficient data.")
+                else:
+                    # Build scenario data for plotting
+                    scenario_plot_data = []
+                    for scenario_label, sc_val in scenario_vals:
+                        # Predicted MSA growth = alpha + beta * sc_val
+                        df_ab_scenario[scenario_label] = df_ab_scenario["Alpha"] + df_ab_scenario["Beta"] * sc_val
+
+                    # We will "melt" the data to plot each scenario as a separate trace
+                    melt_cols = [sv[0] for sv in scenario_vals]  # scenario labels
+                    df_melt = df_ab_scenario.melt(
+                        id_vars=["Metro", "Alpha", "Beta", "R-Squared"],
+                        value_vars=melt_cols,
+                        var_name="Scenario",
+                        value_name="Predicted Growth"
+                    )
+
+                    # XY chart: x=Beta, y=Predicted Growth, color=Scenario, text=Metro
+                    fig_scen = px.scatter(
+                        df_melt,
+                        x="Beta",
+                        y="Predicted Growth",
+                        color="Scenario",
+                        text="Metro",
+                        title="Scenario Analysis: Beta vs. Predicted Growth",
+                        render_mode="webgl"
+                    )
+                    fig_scen.update_traces(textposition='top center', textfont_size=12)
+                    fig_scen.add_vline(
+                        x=1, line_width=2, line_color="black", line_dash="dot",
+                        annotation_text="Beta=1", annotation_position="bottom right"
+                    )
+                    fig_scen.update_layout(dragmode='pan', title_x=0.5, title_xanchor='center')
+
+                    st.plotly_chart(fig_scen, use_container_width=True, config={"scrollZoom": True})
+
+                    # Show a data table with Alpha, Beta, R-Sq, plus each scenario
+                    st.write("#### Detailed Results")
+                    st.dataframe(df_ab_scenario)
+
+                    # Simple confidence note based on R-squared
+                    st.markdown(
+                        """
+                        **Confidence Note**  
+                        - R-Squared indicates how much of the MSA's job growth variation is explained by national trends.  
+                        - Higher R-Squared (e.g., 0.70 or above) → **More reliable** predictions using alpha/beta.  
+                        - Lower R-Squared → The MSA has more local or idiosyncratic factors, so scenario forecasts may be **less reliable**.
+                        """
+                    )
+
