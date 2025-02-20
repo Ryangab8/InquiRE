@@ -390,12 +390,12 @@ We can also add up to 3 forecast yoy values for national and see each MSA's impl
 (We handle the case where there's not enough data to compute alpha/beta by returning None.)
 """)
 
-years_list_all = list(range(1990,2024))
+years_list_all = list(range(1990,2031))
 col_z1, col_z2 = st.columns(2)
 with col_z1:
-    yoy_all_start = st.selectbox("Start Year", years_list_all, index=years_list_all.index(2015))
+    yoy_all_start = st.selectbox("All-MSA Start Year (>=1990)", years_list_all, index=years_list_all.index(2015))
 with col_z2:
-    yoy_all_end   = st.selectbox("End Year", years_list_all, index=years_list_all.index(2024))
+    yoy_all_end   = st.selectbox("All-MSA End Year (<=2030)", years_list_all, index=years_list_all.index(2024))
 
 if yoy_all_end < yoy_all_start+5:
     st.warning("Please pick at least a 5-year window (end >= start+5).")
@@ -580,9 +580,9 @@ and then optionally pick a single MSA for a bar chart.
 years_list_single = list(range(1990,2031))
 col_y1,col_y2=st.columns(2)
 with col_y1:
-    yoy_start_sing=st.selectbox("Start Year", years_list_single, index=years_list_single.index(2015))
+    yoy_start_sing=st.selectbox("Start Year (>=1990)", years_list_single, index=years_list_single.index(2015))
 with col_y2:
-    yoy_end_sing  =st.selectbox("End Year", years_list_single, index=years_list_single.index(2024))
+    yoy_end_sing  =st.selectbox("End Year (<=2030)", years_list_single, index=years_list_single.index(2024))
 
 single_msa_choice=st.selectbox("Select 1 MSA:",sorted(INVERTED_MAP.keys()))
 nat_forecast_val=st.number_input("Next-Year Nat. Growth Forecast (%)",value=1.0,step=0.1,format="%.1f")
@@ -697,4 +697,3 @@ if st.button("Generate Single-MSA YOY Chart"):
         "R-Squared":rsq_v
     }])
     st.dataframe(df_ols_sing)
-
