@@ -606,5 +606,332 @@ if st.button("Generate YoY Bar Chart"):
     - With your forecast of National = {nat_forecast:.1f}%, 
       implied MSA yoy = {yoy_msa_fore:.1f}%.
     """)
+# ---------------------------------------------------------------------
+# 9) YEAR-OVER-YEAR BAR CHART (NEW)
+# ---------------------------------------------------------------------
+    st.markdown("### Year-over-Year Bar Chart: National vs. Single MSA + Forecast")
+...
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import statsmodels.api as sm
+import datetime
+
+# ---------------------------------------------------------------------
+# 1) Basic Setup
+# ---------------------------------------------------------------------
+st.set_page_config(layout="wide", page_title="All MSA YOY Table")
+
+st.title("All MSA Year-over-Year Table + Forecasts")
+
+st.write("""
+This section computes **January-to-January** year-over-year growth for **all** MSAs vs. 
+the National benchmark. You can switch between **raw YOY** or **(MSA minus National)** differences, 
+enter up to 3 forecast values for National YOY, and see how each MSA would compare.
+""")
+
+# ---------------------------------------------------------------------
+# 2) Load Data
+# ---------------------------------------------------------------------
+GITHUB_CSV_URL = "https://raw.githubusercontent.com/Ryangab8/InquiRE/main/raw_nonfarm_jobs.csv"
+df_full = pd.read_csv(GITHUB_CSV_URL)
+df_full["obs_date"] = pd.to_datetime(df_full["obs_date"], errors="coerce")
+
+NATIONAL_SERIES_ID = "CES0000000001"
+
+MSA_NAME_MAP = {
+    "CES0000000001": "National",
+    "SMS36356200000000001": "NYC Metro",
+    "SMS06310800000000001": "LA Metro",
+    "SMS13120600000000001": "Atlanta",
+    "SMS17169800000000001": "Chicago",
+    "SMS04380600000000001": "Phoenix",
+    "SMS48191000000000001": "Dallas–Fort Worth",
+    "SMS25716540000000001": "Boston",
+    "SMS48264200000000001": "Houston",
+    "SMS06418840000000001": "San Francisco–Oakland",
+    "SMS06401400000000001": "Riverside–San Bernardino",
+    "SMS11479000000000001": "Washington DC",
+    "SMS26198200000000001": "Detroit",
+    "SMS42979610000000001": "Philadelphia",
+    "SMS53426600000000001": "Seattle",
+    "SMS12331000000000001": "Miami",
+    "SMS27334600000000001": "Minneapolis–St. Paul",
+    "SMS06417400000000001": "San Diego",
+    "SMS12453000000000001": "Tampa",
+    "SMS08197400000000001": "Denver",
+    "SMS29411800000000001": "St. Louis",
+    "SMS24925810000000001": "Baltimore",
+    "SMS37167400000000001": "Charlotte",
+    "SMS12367400000000001": "Orlando",
+    "SMS48417000000000001": "San Antonio",
+    "SMS41389000000000001": "Portland",
+    "SMS42383000000000001": "Pittsburgh",
+    "SMS06409000000000001": "Sacramento",
+    "SMS32298200000000001": "Las Vegas",
+    "SMS39171400000000001": "Cincinnati",
+    "SMS20928120000000001": "Kansas City",
+    "SMS18180200000000001": "Columbus",
+    "SMS18269000000000001": "Indianapolis",
+    "SMS39174600000000001": "Cleveland",
+    "SMS06419400000000001": "San Jose",
+    "SMS47349800000000001": "Nashville",
+    "SMS51472600000000001": "Virginia Beach–Norfolk",
+    "SMS44772000000000001": "Providence–Warwick",
+    "SMS55333400000000001": "Milwaukee",
+    "SMS12272600000000001": "Jacksonville",
+    "SMS47328200000000001": "Memphis",
+    "SMS51400600000000001": "Richmond",
+    "SMS40364200000000001": "Oklahoma City",
+    "SMU04380600000000001": "Hartford",
+    "SMS22353800000000001": "New Orleans",
+    "SMS36153800000000001": "Buffalo–Cheektowaga",
+    "SMS37395800000000001": "Raleigh",
+    "SMS01138200000000001": "Birmingham–Hoover",
+    "SMS49416200000000001": "Salt Lake City",
+    "SMS36403800000000001": "Rochester",
+    "SMS21311400000000001": "Louisville"
+}
+INVERTED_MAP = {v: k for k, v in MSA_NAME_MAP.items()}
+
+# ---------------------------------------------------------------------
+# 3) User Inputs: Years, Forecasts, Raw vs. Difference
+# ---------------------------------------------------------------------
+years_list = list(range(1990, 2031))
+col_a1, col_a2 = st.columns(2)
+with col_a1:
+    yoy_start = st.selectbox("Start Year (>= 1990)", years_list, index=years_list.index(2015))
+with col_a2:
+    yoy_end = st.selectbox("End Year (<= 2030)", years_list, index=years_list.index(2024))
+
+if yoy_end < yoy_start+5:
+    st.warning("Please select at least a 5-year historical window (end >= start+5).")
+
+# Up to 3 forecast yoy
+st.markdown("#### Enter up to 3 forecast yoy growth rates (National, in %):")
+f1 = st.text_input("Forecast #1", value="1.0")
+f2 = st.text_input("Forecast #2 (optional)", value="2.5")
+f3 = st.text_input("Forecast #3 (optional)", value="")
+
+def parse_forecast(val_str):
+    try:
+        return float(val_str)
+    except:
+        return None
+
+scenarios = []
+for label, val_str in [("Forecast #1", f1), ("Forecast #2", f2), ("Forecast #3", f3)]:
+    fval = parse_forecast(val_str)
+    if fval is not None:
+        scenarios.append((label, fval))
+
+# Checkbox: Raw yoy vs difference
+diff_mode = st.checkbox("Show (MSA minus National) difference instead of raw yoy", value=False)
+
+# ---------------------------------------------------------------------
+# 4) Button to Generate
+# ---------------------------------------------------------------------
+if st.button("Generate All-MSA Table"):
+    if yoy_end < yoy_start+5:
+        st.error("End year must be at least 5 years after start year.")
+        st.stop()
+
+    # 1. Filter data to january only, and year in [yoy_start..yoy_end]
+    df_filtered = df_full.copy()
+    df_filtered["year"] = df_filtered["obs_date"].dt.year
+    df_filtered["month"] = df_filtered["obs_date"].dt.month
+    df_jan = df_filtered[df_filtered["month"]==1].copy()
+    df_jan = df_jan[(df_jan["year"]>=yoy_start) & (df_jan["year"]<=yoy_end)]
+
+    if df_jan.empty:
+        st.warning("No january data in that range.")
+        st.stop()
+
+    # 2. pivot => row=(year), col=(series_id), val=(jobs)
+    pivot_jan = df_jan.pivot(index="year", columns="series_id", values="value")
+    pivot_jan.dropna(how="all", inplace=True)  # remove years w/ no data at all
+    # we need consecutive pairs to do yoy
+
+    # 3. Build yoy for each series_id
+    yoy_map = {}  # yoy_map[series_id][year] = yoy
+    sorted_years = sorted(pivot_jan.index)
+    # We'll do yoy for each year Y => (value[Y] - value[Y-1])/value[Y-1]*100
+    all_series = pivot_jan.columns.unique().tolist()
+
+    for sid in all_series:
+        yoy_map[sid] = {}
+        # gather yoy for consecutive january pairs
+        for y in sorted_years:
+            yprev = y - 1
+            if yprev in pivot_jan.index and sid in pivot_jan.columns:
+                if sid not in pivot_jan.loc[y].dropna().index or sid not in pivot_jan.loc[yprev].dropna().index:
+                    continue
+                val_t   = pivot_jan.loc[y, sid]
+                val_tm1 = pivot_jan.loc[yprev, sid]
+                if pd.notnull(val_t) and pd.notnull(val_tm1) and val_tm1!=0:
+                    yoy_val = 100*(val_t - val_tm1)/val_tm1
+                    yoy_map[sid][y] = yoy_val
+
+    # yoy_map => for each sid, we have yoy_map[sid][year]
+    # 4. We want a row for each MSA, plus one row for National at top
+
+    # build a list of "all msas" from MSA_NAME_MAP except the national
+    all_msas = [k for k in MSA_NAME_MAP if k != NATIONAL_SERIES_ID]
+    # we also want the national row, we'll handle that separately
+    # We'll store yoy for each year in [start+1..end], because yoy for "start" doesn't exist
+    yoy_year_list = [y for y in range(yoy_start+1, yoy_end+1)]
+
+    # We'll also do OLS for each MSA => yoy_msa vs yoy_nat
+    # yoy_nat[y] = yoy_map[NATIONAL_SERIES_ID][y]
+    # yoy_msa[y] = yoy_map[sid][y]
+
+    def get_alpha_beta_rsq(sid):
+        # gather points for yoy, yoy_nat
+        xvals, yvals = [], []
+        for y in yoy_year_list:
+            if y in yoy_map[NATIONAL_SERIES_ID] and y in yoy_map[sid]:
+                xvals.append(yoy_map[NATIONAL_SERIES_ID][y])
+                yvals.append(yoy_map[sid][y])
+        if len(xvals)<2:
+            return (None, None, None)
+        X = sm.add_constant(xvals)
+        model = sm.OLS(yvals, X).fit()
+        alpha_v = model.params["const"]
+        beta_v  = model.params[X.shape[1]-1]  # the slope
+        rsq     = model.rsquared
+        return (alpha_v, beta_v, rsq)
+
+    # We'll store the final table in a DataFrame
+    # columns: Metro, yoy for each year in yoy_year_list, scenario columns, R-sq
+    # We'll also store alpha, beta if you want, but you only requested R-sq
+    final_rows = []
+
+    # First build row for "National"
+    # For each y in yoy_year_list, yoy_map[NATIONAL_SERIES_ID][y]
+    nat_year_map = {}
+    for y in yoy_year_list:
+        val = yoy_map[NATIONAL_SERIES_ID].get(y, None)
+        nat_year_map[y] = val
+
+    # We'll also do "forecast" yoy for national => user scenario
+    # in "raw yoy" mode => it's literally the scenario
+    # in "diff" mode => difference is 0 for national
+    # We'll store them for the table
+    forecast_map_nat = {}
+    for (lbl, fval) in scenarios:
+        if diff_mode:
+            # difference for national is always 0
+            forecast_map_nat[lbl] = 0.0
+        else:
+            # raw yoy => the scenario
+            forecast_map_nat[lbl] = fval
+
+    row_nat = {
+        "Metro": "National",
+        "R-Squared": None
+    }
+    # fill yoy columns
+    for y in yoy_year_list:
+        row_nat[str(y)] = nat_year_map[y]
+
+    # fill forecast columns
+    for (lbl, fval) in scenarios:
+        row_nat[lbl] = forecast_map_nat[lbl]
+
+    final_rows.append(row_nat)
+
+    # now each MSA
+    for sid, name in MSA_NAME_MAP.items():
+        if sid==NATIONAL_SERIES_ID:
+            continue
+    # or do => for name in all_msas => sid=INVERTED_MAP[name]
+    for name in sorted(all_msas):
+        sid = INVERTED_MAP[name]
+        # yoy for each year
+        rowdict = {
+            "Metro": name
+        }
+        # compute alpha,beta,rsq
+        alpha_v, beta_v, rsq_v = get_alpha_beta_rsq(sid)
+        rowdict["R-Squared"] = rsq_v
+
+        for y in yoy_year_list:
+            yoy_n = yoy_map[NATIONAL_SERIES_ID].get(y, None)
+            yoy_m = yoy_map[sid].get(y, None)
+            if yoy_n is None or yoy_m is None:
+                rowdict[str(y)] = None
+            else:
+                if diff_mode:
+                    # yoy_m - yoy_n
+                    rowdict[str(y)] = yoy_m - yoy_n
+                else:
+                    # raw yoy
+                    rowdict[str(y)] = yoy_m
+
+        # forecast columns
+        # yoy_msa_fore = alpha + beta* nat_forecast => raw yoy
+        # or difference => yoy_msa_fore - nat_forecast
+        # = alpha + (beta-1)*nat_forecast
+        for (lbl, fval) in scenarios:
+            if alpha_v is not None and beta_v is not None:
+                yoy_msa_fore = alpha_v + beta_v*fval  # raw yoy
+                if diff_mode:
+                    yoy_diff_fore = yoy_msa_fore - fval
+                    rowdict[lbl] = yoy_diff_fore
+                else:
+                    rowdict[lbl] = yoy_msa_fore
+            else:
+                rowdict[lbl] = None
+
+        final_rows.append(rowdict)
+
+    df_final = pd.DataFrame(final_rows)
+
+    # We'll reorder columns => [Metro, yoy_year_list..., forecast columns..., R-squared]
+    yoy_cols = [str(y) for y in yoy_year_list]
+    fore_cols = [x[0] for x in scenarios]  # e.g. Forecast #1, #2, #3
+    base_cols = ["Metro"] + yoy_cols + fore_cols + ["R-Squared"]
+    df_final = df_final[base_cols]
+
+    # 5) Color coding => if diff_mode => green if >0, red if <0
+    # if raw yoy => might do green if yoy>0, red if yoy<0
+    def colorfunc(val):
+        if val is None:
+            return ""
+        try:
+            if val>0:
+                return "background-color: rgba(76, 175, 80, 0.4)"  # light green
+            elif val<0:
+                return "background-color: rgba(255, 0, 0, 0.3)"  # light red
+            else:
+                return ""
+        except:
+            return ""
+
+    # We'll apply style to yoy + forecast columns, ignoring Metro and R-Squared
+    style_cols = yoy_cols + fore_cols
+
+    # We'll convert the entire DataFrame to string for columns that are not R-Squared or Metro
+    # Then apply style. Or we can just style them as floats.
+    styler = df_final.style.format(
+        subset=style_cols,
+        formatter="{:.2f}"
+    ).format(
+        subset=["R-Squared"],
+        formatter="{:.3f}"
+    ).applymap(
+        colorfunc, subset=style_cols
+    )
+
+    st.dataframe(styler, use_container_width=True)
+
+    st.markdown("""
+    **Notes:**  
+    - "National" is placed on the first row for reference.  
+    - In **Raw YOY** mode, cells turn green if yoy>0, red if yoy<0.  
+    - In **Difference** mode, cells are green if (MSA yoy - National yoy) > 0, red if < 0.  
+    - Forecast columns apply alpha/beta from this entire window for each MSA. If yoy is not enough data, they may be blank.
+    """)
+
 
 
