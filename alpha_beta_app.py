@@ -55,6 +55,10 @@ st.markdown(
 # ---------------------------------------------------------------------
 st.title("US Metro Analysis")
 
+# Add the image right below the title, using the raw GitHub URL
+IMAGE_URL = "https://raw.githubusercontent.com/Ryangab8/InquiRE/main/360_F_323254396_dMmlh2gjWe2yeVasqFUJLS7Eq22wznyT%20(1).jpg"
+st.image(IMAGE_URL, use_column_width=True)
+
 # ---------------------------------------------------------------------
 # 3) About the Data & How To Use
 # ---------------------------------------------------------------------
