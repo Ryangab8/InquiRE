@@ -55,9 +55,9 @@ st.markdown(
 # ---------------------------------------------------------------------
 st.title("US Metro Analysis")
 
-# Add the image right below the title, using the raw GitHub URL
+# Add the image below the title but smaller (fixed width)
 IMAGE_URL = "https://raw.githubusercontent.com/Ryangab8/InquiRE/main/360_F_323254396_dMmlh2gjWe2yeVasqFUJLS7Eq22wznyT%20(1).jpg"
-st.image(IMAGE_URL, use_column_width=True)
+st.image(IMAGE_URL, width=700)
 
 # ---------------------------------------------------------------------
 # 3) About the Data & How To Use
@@ -216,7 +216,7 @@ def compute_multi_alpha_beta(df_raw):
         y = sub[col]
         model = sm.OLS(y, X).fit()
         alpha_v = model.params.get("const", None)
-        slope_keys = [k for k in model.params.keys() if k != "const"]
+        slope_keys = [k for k in model.params if k != "const"]
         beta_v = None
         if len(slope_keys) == 1:
             beta_v = model.params[slope_keys[0]]
@@ -599,7 +599,7 @@ if "all_msa_df" in st.session_state and st.session_state["all_msa_df"] is not No
     st.dataframe(st.session_state["all_msa_df"], use_container_width=True)
 
 # ---------------------------------------------------------------------
-# 10) SINGLE MSA COMPARATIVE YEAR OVER YEAR GROWTH
+# 10) SINGLE MSA COMPARATIVE YEAR Over Year Growth
 # ---------------------------------------------------------------------
 st.markdown("### Single MSA Comparative Year Over Year Growth")
 st.write("""
