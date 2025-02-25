@@ -12,6 +12,7 @@ st.set_page_config(layout="wide", page_title="US Metro Analysis")
 # ---------------------------------------------------------------------
 # 1) Custom CSS
 # ---------------------------------------------------------------------
+# Updated pinned-column selector for .stDataFrame
 st.markdown(
     """
     <style>
@@ -53,17 +54,6 @@ st.markdown(
 # 2) Main Title
 # ---------------------------------------------------------------------
 st.title("US Metro Analysis")
-
-# Centered image below the title:
-st.markdown(
-    """
-    <div style="text-align:center;">
-      <img src="https://raw.githubusercontent.com/Ryangab8/InquiRE/main/360_F_323254396_dMmlh2gjWe2yeVasqFUJLS7Eq22wznyT%20(1).jpg"
-           alt="USA Map" width="700" />
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
 # ---------------------------------------------------------------------
 # 3) About the Data & How To Use
@@ -222,7 +212,7 @@ def compute_multi_alpha_beta(df_raw):
         y = sub[col]
         model = sm.OLS(y, X).fit()
         alpha_v = model.params.get("const", None)
-        slope_keys = [k for k in model.params if k != "const"]
+        slope_keys = [k for k in model.params.keys() if k != "const"]
         beta_v = None
         if len(slope_keys) == 1:
             beta_v = model.params[slope_keys[0]]
@@ -605,7 +595,7 @@ if "all_msa_df" in st.session_state and st.session_state["all_msa_df"] is not No
     st.dataframe(st.session_state["all_msa_df"], use_container_width=True)
 
 # ---------------------------------------------------------------------
-# 10) SINGLE MSA COMPARATIVE YEAR Over Year Growth
+# 10) SINGLE MSA COMPARATIVE YEAR OVER YEAR GROWTH
 # ---------------------------------------------------------------------
 st.markdown("### Single MSA Comparative Year Over Year Growth")
 st.write("""
@@ -749,6 +739,7 @@ if st.button("Generate Single-MSA YOY Chart"):
     st.dataframe(df_ols_sing)
 
     st.markdown("#### Interpretation")
+    # If "Total NonFarm Employment" is selected, add link to FRED
     if metric_choice.startswith("Total NonFarm Employment"):
         st.write("For historical YoY context, see FRED chart: [Historical NonFarm Employment YoY](https://fred.stlouisfed.org/graph/?g=1DRDw)")
 
