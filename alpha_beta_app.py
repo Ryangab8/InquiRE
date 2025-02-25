@@ -12,7 +12,6 @@ st.set_page_config(layout="wide", page_title="US Metro Analysis")
 # ---------------------------------------------------------------------
 # 1) Custom CSS
 # ---------------------------------------------------------------------
-# Updated pinned-column selector for .stDataFrame
 st.markdown(
     """
     <style>
@@ -55,9 +54,16 @@ st.markdown(
 # ---------------------------------------------------------------------
 st.title("US Metro Analysis")
 
-# Add the image below the title but smaller (fixed width)
-IMAGE_URL = "https://raw.githubusercontent.com/Ryangab8/InquiRE/main/360_F_323254396_dMmlh2gjWe2yeVasqFUJLS7Eq22wznyT%20(1).jpg"
-st.image(IMAGE_URL, width=700)
+# Centered image below the title:
+st.markdown(
+    """
+    <div style="text-align:center;">
+      <img src="https://raw.githubusercontent.com/Ryangab8/InquiRE/main/360_F_323254396_dMmlh2gjWe2yeVasqFUJLS7Eq22wznyT%20(1).jpg"
+           alt="USA Map" width="700" />
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # ---------------------------------------------------------------------
 # 3) About the Data & How To Use
@@ -743,7 +749,6 @@ if st.button("Generate Single-MSA YOY Chart"):
     st.dataframe(df_ols_sing)
 
     st.markdown("#### Interpretation")
-    # If "Total NonFarm Employment" is selected, add link to FRED
     if metric_choice.startswith("Total NonFarm Employment"):
         st.write("For historical YoY context, see FRED chart: [Historical NonFarm Employment YoY](https://fred.stlouisfed.org/graph/?g=1DRDw)")
 
