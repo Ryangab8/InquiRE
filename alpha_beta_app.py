@@ -3,11 +3,12 @@ import pandas as pd
 import plotly.express as px
 import statsmodels.api as sm
 import datetime
+import re
 
 # ---------------------------------------------------------------------
-# 0) Page Config Must Be FIRST
+# 0) Page Config
 # ---------------------------------------------------------------------
-st.set_page_config(layout="wide", page_title="US Metro Analysis (Monthly Coverage Debug)")
+st.set_page_config(layout="wide", page_title="US Metro Analysis (Extended Debug)")
 
 # ---------------------------------------------------------------------
 # 1) Custom CSS
@@ -52,63 +53,52 @@ st.markdown(
 # ---------------------------------------------------------------------
 # 2) Main Title
 # ---------------------------------------------------------------------
-st.title("US Metro Analysis (Monthly Coverage Debug)")
+st.title("US Metro Analysis (Extended Debug)")
 
 # ---------------------------------------------------------------------
-# 3) About the Data & How To Use
+# 3) About & How To
 # ---------------------------------------------------------------------
 with st.expander("About the Data", expanded=False):
     st.markdown(
         """
         **Data Source**  
-        - All data is publicly available from the Bureau of Labor Statistics (BLS).  
-        - This tool features the top 50 U.S. MSAs (Metro Statistical Area) by population, plus a “National” benchmark.
+        - Data from the Bureau of Labor Statistics (BLS).  
+        - Top 50 MSAs + “National.”
 
         **Alpha & Beta**  
-        - **Alpha**: Indicates the MSA’s baseline performance relative to national growth for the *chosen* historical range.  
-          - A **positive** alpha suggests the MSA tends to have higher growth even if national growth is zero within that range.  
-          - A **negative** alpha implies underperformance relative to a zero-national-growth scenario.  
-        - **Beta**: Reflects how strongly the MSA’s growth moves in *proportion* to national changes over the *selected* data window.  
-          - Beta > 1 → The MSA “amplifies” or responds more strongly than the national average.  
-          - Beta < 1 → The MSA is more stable, not swinging as much as national.  
+        - **Alpha**: A baseline performance measure (MSA vs. national). Positive → MSA outperforms.  
+        - **Beta**: Sensitivity measure (MSA vs. national). Beta > 1 → more volatile.  
 
         **R-Squared**  
-        - Gauges how well alpha & beta describe the MSA’s relationship with national growth (on a 0–1 scale).  
-        - ~0.70+ = High confidence, 0.50–0.70 = Medium, <0.50 = Low.  
-        - **Higher R-Squared implies a more reliable model for forecasting MSA growth** based on national growth.
+        - How well alpha & beta capture the relationship with national growth.
         """
     )
 
 with st.expander("How To Use", expanded=False):
     st.markdown(
         """
-        1. **Metric**  
-           - Select which metric (e.g., Total NonFarm Employment) at the top; everything references that series.  
-        2. **XY Chart (Alpha vs Beta)**  
-           - Choose MSAs + date range, then generate a scatter of Beta (x-axis) vs Alpha (y-axis).  
-        3. **Time Series (Rolling 12-Month Alpha/Beta)**  
-           - Up to 5 MSAs, pick alpha or beta, define date range.  
-           - Shows monthly rolling alpha/beta lines.  
-        4. **Historical Growth and Forecasts (All MSAs)**  
-           - Year-over-Year (January–January) data for every MSA vs national.  
-           - Input up to 3 forecast % for national. We compute each MSA’s implied growth from alpha & beta (in the chosen window).  
-        5. **Single MSA Comparative Year Over Year Growth**  
-           - Pick 1 MSA + start/end years.  
-           - See a bar chart of national vs MSA historical growth.  
-           - Input up to 3 forecast % to see the MSA’s projected growth bars.
+        1. **Metric**: Currently one option (NonFarm Employment).  
+        2. **XY Chart**: Select MSAs + date range → see scatter of Beta vs Alpha.  
+        3. **Time Series (12-Mo Rolling)**: Up to 5 MSAs, date range → monthly rolling alpha/beta lines.  
+        4. **Historical Growth & Forecasts**: Jan–Jan year-over-year, plus forecast scenarios.  
+        5. **Single MSA**: Compare national vs MSA yoy growth, see forecast scenarios.
         """
     )
 
 # ---------------------------------------------------------------------
-# 4) Load CSV + Force 'value' to Float
+# 4) Load CSV & Force Numeric
 # ---------------------------------------------------------------------
-GITHUB_CSV_URL = "https://raw.githubusercontent.com/Ryangab8/InquiRE/main/raw_nonfarm_jobs.csv"
-df_full = pd.read_csv(GITHUB_CSV_URL)
+CSV_URL = "https://raw.githubusercontent.com/Ryangab8/InquiRE/main/raw_nonfarm_jobs.csv"
+df_full = pd.read_csv(CSV_URL)
 
+# Convert obs_date to datetime
 df_full["obs_date"] = pd.to_datetime(df_full["obs_date"], errors="coerce")
 
-# Force numeric in case of commas or other chars
-df_full["value"] = df_full["value"].astype(str).str.replace(",", "", regex=True)
+def strip_non_digits(val):
+    # remove everything except digits, decimal point, minus sign, e or E
+    return re.sub(r"[^0-9.\-eE]", "", str(val))
+
+df_full["value"] = df_full["value"].apply(strip_non_digits)
 df_full["value"] = pd.to_numeric(df_full["value"], errors="coerce")
 
 NATIONAL_SERIES_ID = "CES0000000001"
@@ -349,7 +339,7 @@ if st.session_state["xy_df"] is not None:
         st.dataframe(st.session_state["xy_df"])
 
 # ---------------------------------------------------------------------
-# 8) TIME SERIES (Rolling 12-Month Alpha/Beta) -- WITH MONTHLY COVERAGE DEBUG
+# 8) TIME SERIES (Rolling 12-Month Alpha/Beta) -- With Additional Debug
 # ---------------------------------------------------------------------
 st.markdown("### Time Series (Rolling 12-Month Alpha/Beta)")
 
@@ -390,28 +380,32 @@ if st.button("Compute Time Series"):
         st.warning("Pick at least 1 MSA.")
     else:
         chosen_time_ids = [INVERTED_MAP[n] for n in selected_time_msas]
-        # Fetch from 1990 so we have enough data for the rolling window
         df_raw_ts = fetch_raw_data_multiple(chosen_time_ids, "1990-01", ts_end_ym)
         if df_raw_ts.empty:
             st.warning("No data found. Check your CSV or chosen date range.")
         else:
-            # >>> DEBUG #1: Show (year, month) coverage
+            # Coverage debug
             dbg_temp = df_raw_ts.copy()
             dbg_temp["year"] = dbg_temp["obs_date"].dt.year
             dbg_temp["month"] = dbg_temp["obs_date"].dt.month
             coverage_counts = dbg_temp.groupby(["series_id","year","month"]).size().reset_index(name="count")
-            st.write("DEBUG: Coverage of (year, month) for each chosen series_id:", coverage_counts.head(50))
+            st.write("DEBUG: Coverage (year,month):", coverage_counts.head(50))
 
-            # >>> DEBUG #2: Pivot check
             pivot_check = dbg_temp.pivot(index="obs_date", columns="series_id", values="value")
             st.write("DEBUG: pivot_check shape:", pivot_check.shape)
+            st.write("DEBUG: pivot_check dtypes:", pivot_check.dtypes)
+            if pivot_check.size > 0:
+                # show first row's raw type
+                example_val = pivot_check.iloc[0,0]
+                st.write("DEBUG: pivot_check[0,0] =", example_val, "; type=", type(example_val))
+            
             st.write("DEBUG: pivot_check head(12):")
-            st.write(pivot_check.head(12))
+            st.dataframe(pivot_check.head(12).style.format("{:.1f}"))
 
-            # >>> DEBUG #3: NaN counts
-            st.write("DEBUG: pivot_check NaN counts per column:")
+            st.write("DEBUG: pivot_check NaN counts:")
             st.write(pivot_check.isna().sum())
 
+            # Now compute
             df_ts_result = compute_rolling_alpha_beta_time_series(df_raw_ts, ts_start_ym, ts_end_ym)
             if df_ts_result.empty:
                 st.warning("No rolling alpha/beta computed.")
@@ -557,7 +551,7 @@ if st.button("Generate Table"):
         v_n = yoy_map[NATIONAL_SERIES_ID].get(y, None)
         nat_row[str(y)] = v_n
     for (lbl, fval) in scenarios:
-        nat_row[lbl] = 0.0 if diff_mode else fval
+        nat_row[lbl] = (0.0 if diff_mode else fval)
     rows.append(nat_row)
 
     all_msas = [k for k in MSA_NAME_MAP if k != NATIONAL_SERIES_ID]
@@ -572,7 +566,7 @@ if st.button("Generate Table"):
             if yoy_nat is None or yoy_msa is None:
                 rowdict[str(y)] = None
             else:
-                rowdict[str(y)] = yoy_msa - yoy_nat if diff_mode else yoy_msa
+                rowdict[str(y)] = (yoy_msa - yoy_nat if diff_mode else yoy_msa)
         if alph is not None and beta is not None:
             for (lbl, fval) in scenarios:
                 yoy_msa_fore = alph + beta*fval
@@ -607,12 +601,9 @@ if "all_msa_df" in st.session_state and st.session_state["all_msa_df"] is not No
     st.dataframe(st.session_state["all_msa_df"], use_container_width=True)
 
 # ---------------------------------------------------------------------
-# 10) SINGLE MSA COMPARATIVE Year Over Year Growth
+# 10) SINGLE MSA Comparative Year Over Year
 # ---------------------------------------------------------------------
 st.markdown("### Single MSA Comparative Year Over Year Growth")
-st.write("""\
-Directly compare national and metro growth rates. Visualize metro growth projections.
-""")
 
 if "single_msa_df" not in st.session_state:
     st.session_state["single_msa_df"] = None
@@ -743,25 +734,5 @@ if st.button("Generate Single-MSA YOY Chart"):
     }])
     st.dataframe(df_ols_sing)
 
-    st.markdown("#### Interpretation")
-    if metric_choice.startswith("Total NonFarm Employment"):
-        st.write("For historical YoY context, see FRED chart: [Historical NonFarm Employment YoY](https://fred.stlouisfed.org/graph/?g=1DRDw)")
+    st.mar
 
-    if alpha_v is not None and beta_v is not None:
-        lines = []
-        for (lbl, fval) in sing_scenarios:
-            yoy_msa = alpha_v + beta_v*fval if (alpha_v is not None and beta_v is not None) else None
-            if yoy_msa is not None:
-                lines.append(f"For **{lbl}** (National = {fval:.1f}%), the projected MSA growth = **{yoy_msa:.1f}%**.")
-        if lines:
-            st.write("Based on alpha/beta above, here are scenario implications:")
-            for l in lines:
-                st.write("-", l)
-        else:
-            st.write("No valid forecast entries found.")
-    else:
-        st.write("Insufficient data to interpret alpha/beta for this MSA.")
-
-if st.session_state["single_msa_df"] is not None:
-    if st.checkbox("View data table"):
-        st.dataframe(st.session_state["single_msa_df"])
