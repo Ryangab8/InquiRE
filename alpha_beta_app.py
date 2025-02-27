@@ -7,7 +7,7 @@ import datetime
 # ---------------------------------------------------------------------
 # 0) Page Config Must Be FIRST
 # ---------------------------------------------------------------------
-st.set_page_config(layout="wide", page_title="US Metro Analysis")
+st.set_page_config(layout="wide", page_title="US Metro Analysis (Monthly Coverage Debug)")
 
 # ---------------------------------------------------------------------
 # 1) Custom CSS
@@ -52,7 +52,7 @@ st.markdown(
 # ---------------------------------------------------------------------
 # 2) Main Title
 # ---------------------------------------------------------------------
-st.title("US Metro Analysis")
+st.title("US Metro Analysis (Monthly Coverage Debug)")
 
 # ---------------------------------------------------------------------
 # 3) About the Data & How To Use
@@ -100,15 +100,14 @@ with st.expander("How To Use", expanded=False):
     )
 
 # ---------------------------------------------------------------------
-# 4) Load CSV + Force 'value' to be Numeric
+# 4) Load CSV + Force 'value' to Float
 # ---------------------------------------------------------------------
 GITHUB_CSV_URL = "https://raw.githubusercontent.com/Ryangab8/InquiRE/main/raw_nonfarm_jobs.csv"
 df_full = pd.read_csv(GITHUB_CSV_URL)
 
-# Convert obs_date to datetime
 df_full["obs_date"] = pd.to_datetime(df_full["obs_date"], errors="coerce")
 
-# Force 'value' to be numeric (remove commas or anything non-digit)
+# Force numeric in case of commas or other chars
 df_full["value"] = df_full["value"].astype(str).str.replace(",", "", regex=True)
 df_full["value"] = pd.to_numeric(df_full["value"], errors="coerce")
 
@@ -235,7 +234,6 @@ def compute_alpha_beta_subset(df_subset, nat_col, msa_col):
     beta_v = model.params[slope_keys[0]] if len(slope_keys) == 1 else None
     return alpha_v, beta_v
 
-# -- Original/Working Rolling 12-Month OLS function --
 def compute_rolling_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
     df_pivot = df_raw_ts.pivot(index="obs_date", columns="series_id", values="value")
     df_growth = df_pivot.pct_change(1) * 100
@@ -351,7 +349,7 @@ if st.session_state["xy_df"] is not None:
         st.dataframe(st.session_state["xy_df"])
 
 # ---------------------------------------------------------------------
-# 8) TIME SERIES (Rolling 12-Month Alpha/Beta)
+# 8) TIME SERIES (Rolling 12-Month Alpha/Beta) -- WITH MONTHLY COVERAGE DEBUG
 # ---------------------------------------------------------------------
 st.markdown("### Time Series (Rolling 12-Month Alpha/Beta)")
 
@@ -397,6 +395,23 @@ if st.button("Compute Time Series"):
         if df_raw_ts.empty:
             st.warning("No data found. Check your CSV or chosen date range.")
         else:
+            # >>> DEBUG #1: Show (year, month) coverage
+            dbg_temp = df_raw_ts.copy()
+            dbg_temp["year"] = dbg_temp["obs_date"].dt.year
+            dbg_temp["month"] = dbg_temp["obs_date"].dt.month
+            coverage_counts = dbg_temp.groupby(["series_id","year","month"]).size().reset_index(name="count")
+            st.write("DEBUG: Coverage of (year, month) for each chosen series_id:", coverage_counts.head(50))
+
+            # >>> DEBUG #2: Pivot check
+            pivot_check = dbg_temp.pivot(index="obs_date", columns="series_id", values="value")
+            st.write("DEBUG: pivot_check shape:", pivot_check.shape)
+            st.write("DEBUG: pivot_check head(12):")
+            st.write(pivot_check.head(12))
+
+            # >>> DEBUG #3: NaN counts
+            st.write("DEBUG: pivot_check NaN counts per column:")
+            st.write(pivot_check.isna().sum())
+
             df_ts_result = compute_rolling_alpha_beta_time_series(df_raw_ts, ts_start_ym, ts_end_ym)
             if df_ts_result.empty:
                 st.warning("No rolling alpha/beta computed.")
@@ -519,7 +534,6 @@ if st.button("Generate Table"):
     sorted_yrs = sorted(pivot_jan.index)
     all_sids = pivot_jan.columns.unique().tolist()
 
-    # build yoy map
     yoy_map = {}
     for sid in all_sids:
         yoy_map[sid] = {}
