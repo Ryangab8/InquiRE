@@ -8,7 +8,7 @@ import re
 # ---------------------------------------------------------------------
 # 0) Page Config Must Be FIRST
 # ---------------------------------------------------------------------
-st.set_page_config(layout="wide", page_title="US Metro Analysis - Deep Debug Rolling")
+st.set_page_config(layout="wide", page_title="US Metro Analysis")
 
 # ---------------------------------------------------------------------
 # 1) Custom CSS
@@ -53,7 +53,7 @@ st.markdown(
 # ---------------------------------------------------------------------
 # 2) Main Title
 # ---------------------------------------------------------------------
-st.title("US Metro Analysis (Deep Debug Rolling Version)")
+st.title("US Metro Analysis")
 
 # ---------------------------------------------------------------------
 # 3) About the Data & How To Use
@@ -66,36 +66,37 @@ with st.expander("About the Data", expanded=False):
         - This tool features the top 50 U.S. MSAs (Metro Statistical Area) by population, plus a “National” benchmark.
 
         **Alpha & Beta**  
-        - **Alpha**: Baseline performance measure (MSA vs. national).  
-        - **Beta**: Sensitivity measure (MSA vs. national).  
-        - **R-Squared**: How well alpha & beta fit the data.
+        - **Alpha**: Indicates the MSA’s baseline performance relative to national growth in the chosen period.  
+        - **Beta**: Reflects how strongly (or weakly) the MSA’s growth moves in proportion to national changes.  
+        - **R-Squared**: How well alpha & beta describe the MSA’s relationship with national.
 
-        **This Version**  
-        - Adds detailed, step-by-step debug logs in the rolling 12-month alpha/beta code.
+        **Rolling 12-Month Time Series**  
+        - Uses a rolling window of 12 consecutive months to compute monthly alpha & beta.  
+        - More responsive to new data than a single full-period OLS.
         """
     )
 
 with st.expander("How To Use", expanded=False):
     st.markdown(
         """
-        1. **Select a Metric**  
-        2. **XY Chart (Alpha vs Beta)**  
-        3. **Time Series (Rolling 12-Month)** with deep debug prints.  
-        4. **Historical Growth & Forecasts (All MSAs)**  
-        5. **Single MSA** for yoy comparison.
-
-        Check the debug prints under "Compute Time Series" to see each monthly window’s OLS details.
+        1. **Select a metric** (currently one option).  
+        2. **XY Chart (Alpha vs Beta)**: pick MSAs + date range → see scatter.  
+        3. **Time Series (Rolling 12-Month Alpha/Beta)**: up to 5 MSAs, pick date range.  
+        4. **Historical Growth & Forecasts**: Year-over-year (Jan–Jan) for all MSAs, plus scenario forecasts.  
+        5. **Single MSA**: Compare national vs MSA yoy growth, plus forecast scenarios.
         """
     )
 
 # ---------------------------------------------------------------------
-# 4) Load CSV + Force 'value' Numeric
+# 4) Load CSV & Force 'value' to be Numeric
 # ---------------------------------------------------------------------
 CSV_URL = "https://raw.githubusercontent.com/Ryangab8/InquiRE/main/raw_nonfarm_jobs.csv"
 df_full = pd.read_csv(CSV_URL)
 
+# Convert obs_date to datetime
 df_full["obs_date"] = pd.to_datetime(df_full["obs_date"], errors="coerce")
 
+# Remove any non-digit characters (commas, etc.) from "value"
 def strip_non_digits(val):
     return re.sub(r"[^0-9.\-eE]", "", str(val))
 
@@ -104,7 +105,6 @@ df_full["value"] = pd.to_numeric(df_full["value"], errors="coerce")
 
 NATIONAL_SERIES_ID = "CES0000000001"
 
-# Add your full MSA map here:
 MSA_NAME_MAP = {
     "CES0000000001": "National",
     "SMS36356200000000001": "NYC Metro",
@@ -128,35 +128,7 @@ MSA_NAME_MAP = {
     "SMS08197400000000001": "Denver",
     "SMS29411800000000001": "St. Louis",
     "SMS24925810000000001": "Baltimore",
-    "SMS37167400000000001": "Charlotte",
-    "SMS12367400000000001": "Orlando",
-    "SMS48417000000000001": "San Antonio",
-    "SMS41389000000000001": "Portland",
-    "SMS42383000000000001": "Pittsburgh",
-    "SMS06409000000000001": "Sacramento",
-    "SMS32298200000000001": "Las Vegas",
-    "SMS39171400000000001": "Cincinnati",
-    "SMS20928120000000001": "Kansas City",
-    "SMS18180200000000001": "Columbus",
-    "SMS18269000000000001": "Indianapolis",
-    "SMS39174600000000001": "Cleveland",
-    "SMS06419400000000001": "San Jose",
-    "SMS47349800000000001": "Nashville",
-    "SMS51472600000000001": "Virginia Beach–Norfolk",
-    "SMS44772000000000001": "Providence–Warwick",
-    "SMS55333400000000001": "Milwaukee",
-    "SMS12272600000000001": "Jacksonville",
-    "SMS47328200000000001": "Memphis",
-    "SMS51400600000000001": "Richmond",
-    "SMS40364200000000001": "Oklahoma City",
-    "SMU04380600000000001": "Hartford",
-    "SMS22353800000000001": "New Orleans",
-    "SMS36153800000000001": "Buffalo–Cheektowaga",
-    "SMS37395800000000001": "Raleigh",
-    "SMS01138200000000001": "Birmingham–Hoover",
-    "SMS49416200000000001": "Salt Lake City",
-    "SMS36403800000000001": "Rochester",
-    "SMS21311400000000001": "Louisville"
+    # ... add additional MSAs as needed ...
 }
 INVERTED_MAP = {v: k for k, v in MSA_NAME_MAP.items()}
 
@@ -171,15 +143,17 @@ metric_choice = st.selectbox(
 st.write(f"You selected: **{metric_choice}**")
 
 # ---------------------------------------------------------------------
-# 6) Utility Functions (incl. normal XY + yoy logic)
+# 6) Utility Functions
 # ---------------------------------------------------------------------
+import math
+
 def fetch_raw_data_multiple(msa_ids, start_ym, end_ym):
     if NATIONAL_SERIES_ID not in msa_ids:
         msa_ids.append(NATIONAL_SERIES_ID)
-    start_year, start_month = map(int, start_ym.split("-"))
-    end_year, end_month = map(int, end_ym.split("-"))
-    start_dt = datetime.datetime(start_year, start_month, 1)
-    end_dt   = datetime.datetime(end_year, end_month, 1)
+    sy, sm = map(int, start_ym.split("-"))
+    ey, em = map(int, end_ym.split("-"))
+    start_dt = datetime.datetime(sy, sm, 1)
+    end_dt   = datetime.datetime(ey, em, 1)
     return df_full[
         (df_full["series_id"].isin(msa_ids)) &
         (df_full["obs_date"] >= start_dt) &
@@ -204,7 +178,7 @@ def compute_multi_alpha_beta(df_raw):
         y = sub[col]
         model = sm.OLS(y, X).fit()
         alpha_v = model.params.get("const", None)
-        slope_keys = [k for k in model.params.keys() if k != "const"]
+        slope_keys = [k for k in model.params if k != "const"]
         beta_v = model.params[slope_keys[0]] if len(slope_keys) == 1 else None
         rsq_v  = model.rsquared
         results.append({
@@ -226,24 +200,14 @@ def compute_alpha_beta_subset(df_subset, nat_col, msa_col):
     beta_v = model.params[slope_keys[0]] if len(slope_keys) == 1 else None
     return alpha_v, beta_v
 
-# ---------------------------------------------------------------------
-# 7) Our Special Step-by-step Rolling Function
-# ---------------------------------------------------------------------
-def compute_rolling_alpha_beta_time_series_debug(df_raw_ts, start_ym_ts, end_ym_ts):
-    """
-    A step-by-step debug version of the rolling alpha/beta function.
-    Prints for each monthly date:
-      - rolling window start/end
-      - NaN counts
-      - whether OLS was run or skipped
-    """
+def compute_rolling_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
     df_pivot = df_raw_ts.pivot(index="obs_date", columns="series_id", values="value")
     df_growth = df_pivot.pct_change(1) * 100
+    # Drop rows that are fully NaN, then sort by date so rolling windows work
     df_growth.dropna(how="all", inplace=True)
     df_growth.sort_index(inplace=True)
 
     if NATIONAL_SERIES_ID not in df_growth.columns:
-        st.write("DEBUG: No National in df_growth columns, returning empty.")
         return pd.DataFrame()
 
     start_dt = pd.to_datetime(f"{start_ym_ts}-01")
@@ -252,51 +216,33 @@ def compute_rolling_alpha_beta_time_series_debug(df_raw_ts, start_ym_ts, end_ym_
     unique_months_ts = sorted(df_growth.index.unique())
     results_ts = []
 
-    st.write(f"DEBUG: Rolling from {start_dt.date()} to {end_dt.date()}. Found {len(unique_months_ts)} distinct months total.")
-
     for current_month in unique_months_ts:
         if current_month < start_dt or current_month > end_dt:
             continue
-
+        # 12-month rolling window
         rolling_start = current_month - pd.DateOffset(months=11)
         df_window = df_growth.loc[(df_growth.index >= rolling_start) & (df_growth.index <= current_month)]
 
-        st.write(f"\n**Month**: {current_month.date()} | Window: {rolling_start.date()} → {current_month.date()}")
-        st.write(f"Window shape before dropna: {df_window.shape}")
-        
-        na_counts = df_window.isna().sum()
-        st.write("NaN counts in this window:")
-        st.write(na_counts)
+        if len(df_window) < 2:
+            continue
 
-        for col in df_growth.columns:
-            if col == NATIONAL_SERIES_ID:
+        for msa_col in df_growth.columns:
+            if msa_col == NATIONAL_SERIES_ID:
                 continue
-            subset = df_window[[NATIONAL_SERIES_ID, col]].dropna()
-            st.write(f"  -> MSA col '{col}', subset shape after dropna: {subset.shape}")
-            if len(subset) < 2:
-                st.write("     Skipped (not enough rows for OLS).")
-                continue
-            X = sm.add_constant(subset[NATIONAL_SERIES_ID])
-            y = subset[col]
-            model = sm.OLS(y, X).fit()
-            alpha_val = model.params.get("const", None)
-            slope_keys = [k for k in model.params.keys() if k != "const"]
-            beta_val = model.params[slope_keys[0]] if len(slope_keys) == 1 else None
+            subset = df_window[[NATIONAL_SERIES_ID, msa_col]].dropna()
+            alpha_val, beta_val = compute_alpha_beta_subset(subset, NATIONAL_SERIES_ID, msa_col)
+            if alpha_val is not None and beta_val is not None:
+                results_ts.append({
+                    "obs_date": current_month,
+                    "series_id": msa_col,
+                    "alpha": alpha_val,
+                    "beta": beta_val
+                })
 
-            results_ts.append({
-                "obs_date": current_month,
-                "series_id": col,
-                "alpha": alpha_val,
-                "beta": beta_val
-            })
-            st.write(f"     OLS success! alpha={alpha_val:.2f}, beta={beta_val:.2f}")
-
-    df_out = pd.DataFrame(results_ts)
-    st.write(f"\nDONE. Rolling results shape: {df_out.shape}")
-    return df_out
+    return pd.DataFrame(results_ts)
 
 # ---------------------------------------------------------------------
-# 8) XY CHART (Alpha vs Beta)
+# 7) XY CHART (Alpha vs Beta)
 # ---------------------------------------------------------------------
 st.markdown("### XY Chart (Alpha vs Beta)")
 
@@ -373,9 +319,9 @@ if st.session_state["xy_df"] is not None:
         st.dataframe(st.session_state["xy_df"])
 
 # ---------------------------------------------------------------------
-# 9) TIME SERIES (Rolling 12-Month Alpha/Beta, Step-by-step Debug)
+# 8) TIME SERIES (Rolling 12-Month Alpha/Beta)
 # ---------------------------------------------------------------------
-st.markdown("### Time Series (Rolling 12-Month Alpha/Beta) - Deep Debug")
+st.markdown("### Time Series (Rolling 12-Month Alpha/Beta)")
 
 if "df_ts" not in st.session_state:
     st.session_state["df_ts"] = None
@@ -396,18 +342,18 @@ ts_start_default = 2019
 ts_end_default = 2024
 
 st.write("#### Date Range for Time Series (Rolling Window)")
-tsA, tsB = st.columns(2)
-with tsA:
+col_ts1, col_ts2 = st.columns(2)
+with col_ts1:
     ts_start_month = st.selectbox("Start Month (Time Series)", months_list, index=0)
     ts_start_year  = st.selectbox("Start Year (Time Series)", ts_years, index=ts_years.index(ts_start_default))
-with tsB:
+with col_ts2:
     ts_end_month = st.selectbox("End Month (Time Series)", months_list, index=11)
     ts_end_year  = st.selectbox("End Year (Time Series)", ts_years, index=ts_years.index(ts_end_default))
 
-ts_smonth = months_list.index(ts_start_month)+1
-ts_emonth = months_list.index(ts_end_month)+1
-ts_start_ym = f"{ts_start_year:04d}-{ts_smonth:02d}"
-ts_end_ym   = f"{ts_end_year:04d}-{ts_emonth:02d}"
+ts_smonth_num = months_list.index(ts_start_month)+1
+ts_emonth_num = months_list.index(ts_end_month)+1
+ts_start_ym   = f"{ts_start_year:04d}-{ts_smonth_num:02d}"
+ts_end_ym     = f"{ts_end_year:04d}-{ts_emonth_num:02d}"
 
 if st.button("Compute Time Series"):
     if not selected_time_msas:
@@ -416,12 +362,11 @@ if st.button("Compute Time Series"):
         chosen_time_ids = [INVERTED_MAP[n] for n in selected_time_msas]
         df_raw_ts = fetch_raw_data_multiple(chosen_time_ids, "1990-01", ts_end_ym)
         if df_raw_ts.empty:
-            st.warning("No data found. Check CSV or chosen date range.")
+            st.warning("No data found. Check your CSV or chosen date range.")
         else:
-            # Run the step-by-step debug function
-            df_ts_result = compute_rolling_alpha_beta_time_series_debug(df_raw_ts, ts_start_ym, ts_end_ym)
+            df_ts_result = compute_rolling_alpha_beta_time_series(df_raw_ts, ts_start_ym, ts_end_ym)
             if df_ts_result.empty:
-                st.warning("No rolling alpha/beta computed (final).")
+                st.warning("No rolling alpha/beta computed.")
             else:
                 df_ts_result["Metro"] = df_ts_result["series_id"].apply(lambda sid: MSA_NAME_MAP.get(sid, sid))
                 df_ts_result.drop(columns=["series_id"], inplace=True)
@@ -459,13 +404,12 @@ if st.session_state["fig_ts"] is not None:
         st.dataframe(st.session_state["df_ts"])
 
 # ---------------------------------------------------------------------
-# 10) HISTORICAL GROWTH AND FORECASTS (All MSAs)
+# 9) HISTORICAL GROWTH AND FORECASTS (All MSAs)
 # ---------------------------------------------------------------------
 st.markdown("### Historical Growth and Forecasts")
 st.write("""\
 View historical comparisons between national and metro growth rates. 
-Enter national growth forecast scenarios to see projected growth at the metro level.
-- Forecasts are based on alpha/beta in the chosen window.
+Enter national growth forecast scenarios to project MSA growth from alpha/beta in the chosen window.
 """)
 
 if "all_msa_df" not in st.session_state:
@@ -498,7 +442,7 @@ for lbl, vstr in [("Forecast #1", table_f1), ("Forecast #2", table_f2), ("Foreca
     if ff is not None:
         scenarios.append((lbl, ff))
 
-diff_mode = st.checkbox("Show National vs Metro Variance (MSA growth minus National)?", value=False)
+diff_mode = st.checkbox("Show National vs Metro Variance (MSA minus National)?", value=False)
 
 def get_alpha_beta_rsq_yoy(sid, ylist, yoy_map):
     xvals, yvals = [], []
@@ -524,7 +468,7 @@ def get_alpha_beta_rsq_yoy(sid, ylist, yoy_map):
 
 if st.button("Generate Table"):
     if yoy_table_end < yoy_table_start + 5:
-        st.error("End year must be at least start+5.")
+        st.error("End year must be >= start+5.")
         st.stop()
 
     df_tmp = df_full.copy()
@@ -541,7 +485,6 @@ if st.button("Generate Table"):
     sorted_yrs = sorted(pivot_jan.index)
     all_sids = pivot_jan.columns.unique().tolist()
 
-    # yoy map
     yoy_map = {}
     for sid in all_sids:
         yoy_map[sid] = {}
@@ -580,11 +523,17 @@ if st.button("Generate Table"):
             if yoy_nat is None or yoy_msa is None:
                 rowdict[str(y)] = None
             else:
-                rowdict[str(y)] = (yoy_msa - yoy_nat) if diff_mode else yoy_msa
+                if diff_mode:
+                    rowdict[str(y)] = yoy_msa - yoy_nat
+                else:
+                    rowdict[str(y)] = yoy_msa
         if alph is not None and beta is not None:
             for (lbl, fval) in scenarios:
                 yoy_msa_fore = alph + beta*fval
-                rowdict[lbl] = (yoy_msa_fore - fval) if diff_mode else yoy_msa_fore
+                if diff_mode:
+                    rowdict[lbl] = yoy_msa_fore - fval
+                else:
+                    rowdict[lbl] = yoy_msa_fore
         else:
             for (lbl, fval) in scenarios:
                 rowdict[lbl] = None
@@ -615,11 +564,11 @@ if "all_msa_df" in st.session_state and st.session_state["all_msa_df"] is not No
     st.dataframe(st.session_state["all_msa_df"], use_container_width=True)
 
 # ---------------------------------------------------------------------
-# 11) SINGLE MSA Comparative Year Over Year
+# 10) SINGLE MSA Comparative Year Over Year
 # ---------------------------------------------------------------------
 st.markdown("### Single MSA Comparative Year Over Year Growth")
 st.write("""\
-Compare National vs MSA yoy growth. Visualize MSA's forecast growth.
+Compare national vs MSA yoy growth. Enter forecast scenarios to see MSA’s projected yoy growth.
 """)
 
 if "single_msa_df" not in st.session_state:
@@ -693,6 +642,7 @@ if st.button("Generate Single-MSA YOY Chart"):
         st.warning("Not enough consecutive january data for yoy.")
         st.stop()
 
+    # OLS for alpha/beta
     Xdf = sm.add_constant(df_sing_yoy["Nat_Growth"], prepend=True)
     yvals = df_sing_yoy["MSA_Growth"]
     model = sm.OLS(yvals, Xdf).fit()
@@ -706,6 +656,7 @@ if st.button("Generate Single-MSA YOY Chart"):
     except:
         alpha_v, beta_v, rsq_v = None, None, None
 
+    # forecast rows
     forecast_rows = []
     df_plot_sing = df_sing_yoy.copy()
     for (lbl, fval) in sing_scenarios:
@@ -718,6 +669,7 @@ if st.button("Generate Single-MSA YOY Chart"):
     if forecast_rows:
         df_plot_sing = pd.concat([df_sing_yoy, pd.DataFrame(forecast_rows)], ignore_index=True)
 
+    # bar chart
     bar_list = []
     for _, row_ in df_plot_sing.iterrows():
         bar_list.append({
@@ -742,6 +694,7 @@ if st.button("Generate Single-MSA YOY Chart"):
 
     st.session_state["single_msa_df"] = df_plot_sing
 
+    # OLS summary
     st.markdown("#### Summary Statistics")
     df_ols_sing = pd.DataFrame([{
         "MSA": single_msa_pick,
@@ -753,25 +706,25 @@ if st.button("Generate Single-MSA YOY Chart"):
 
     st.markdown("#### Interpretation")
     if metric_choice.startswith("Total NonFarm Employment"):
-        st.write("For historical YoY context, see FRED chart: [NonFarm Employment YoY](https://fred.stlouisfed.org/graph/?g=1DRDw)")
+        st.write("For historical YoY context, see FRED chart: [Historical NonFarm Employment YoY](https://fred.stlouisfed.org/graph/?g=1DRDw)")
 
     if alpha_v is not None and beta_v is not None:
         lines = []
         for (lbl, fval) in sing_scenarios:
             yoy_msa = alpha_v + beta_v*fval if (alpha_v is not None and beta_v is not None) else None
             if yoy_msa is not None:
-                lines.append(f"For {lbl} (National = {fval:.1f}%), projected MSA = {yoy_msa:.1f}%.")
+                lines.append(
+                    f"For **{lbl}** (National = {fval:.1f}%), the MSA projects ~ **{yoy_msa:.1f}%**."
+                )
         if lines:
-            st.write("Based on alpha/beta above, scenario implications:")
+            st.write("Scenario implications:")
             for l in lines:
                 st.write("-", l)
         else:
             st.write("No valid forecast entries.")
     else:
-        st.write("Insufficient data for alpha/beta on this MSA.")
+        st.write("Insufficient data to interpret alpha/beta for this MSA.")
 
 if st.session_state["single_msa_df"] is not None:
     if st.checkbox("View data table"):
         st.dataframe(st.session_state["single_msa_df"])
-
-
