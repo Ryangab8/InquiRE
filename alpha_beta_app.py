@@ -370,11 +370,11 @@ ts_start_default = 2019
 ts_end_default = 2024
 
 st.write("#### Date Range for Time Series (Rolling Window)")
-col_ts1, col_ts2 = st.columns(2)
-with col_ts1:
+col_tsA, col_tsB = st.columns(2)
+with col_tsA:
     ts_start_month = st.selectbox("Start Month (Time Series)", months_list, index=0)
     ts_start_year  = st.selectbox("Start Year (Time Series)", ts_years, index=ts_years.index(ts_start_default))
-with col_ts2:
+with col_tsB:
     ts_end_month = st.selectbox("End Month (Time Series)", months_list, index=11)
     ts_end_year  = st.selectbox("End Year (Time Series)", ts_years, index=ts_years.index(ts_end_default))
 
