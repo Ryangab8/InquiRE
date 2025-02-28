@@ -66,24 +66,37 @@ with st.expander("About the Data", expanded=False):
         - This tool features the top 50 U.S. MSAs (Metro Statistical Area) by population, plus a “National” benchmark.
 
         **Alpha & Beta**  
-        - **Alpha**: Indicates the MSA’s baseline performance relative to national growth in the chosen period.  
-        - **Beta**: Reflects how strongly (or weakly) the MSA’s growth moves in proportion to national changes.  
-        - **R-Squared**: How well alpha & beta describe the MSA’s relationship with national.
+        - **Alpha**: Indicates the MSA’s baseline performance relative to national growth for the *chosen* historical range.  
+          - A **positive** alpha suggests the MSA tends to have higher growth even if national growth is zero within that range.  
+          - A **negative** alpha implies underperformance relative to a zero-national-growth scenario.  
+        - **Beta**: Reflects how strongly the MSA’s growth moves in *proportion* to national changes over the *selected* data window.  
+          - Beta > 1 → The MSA “amplifies” or responds more strongly than the national average.  
+          - Beta < 1 → The MSA is more stable, not swinging as much as national.  
 
-        **Rolling 12-Month Time Series**  
-        - Uses a rolling window of 12 consecutive months to compute monthly alpha & beta.  
-        - More responsive to new data than a single full-period OLS.
+        **R-Squared**  
+        - Gauges how well alpha & beta describe the MSA’s relationship with national growth (on a 0–1 scale).  
+        - ~0.70+ = High confidence, 0.50–0.70 = Medium, <0.50 = Low.  
+        - **Higher R-Squared implies a more reliable model for forecasting MSA growth** based on national growth.
         """
     )
 
 with st.expander("How To Use", expanded=False):
     st.markdown(
         """
-        1. **Select a metric** (currently one option).  
-        2. **XY Chart (Alpha vs Beta)**: pick MSAs + date range → see scatter.  
-        3. **Time Series (Rolling 12-Month Alpha/Beta)**: up to 5 MSAs, pick date range.  
-        4. **Historical Growth & Forecasts**: Year-over-year (Jan–Jan) for all MSAs, plus scenario forecasts.  
-        5. **Single MSA**: Compare national vs MSA yoy growth, plus forecast scenarios.
+        1. **Metric**  
+           - Select which metric (e.g., Total NonFarm Employment) at the top; everything references that series.  
+        2. **XY Chart (Alpha vs Beta)**  
+           - Choose MSAs + date range, then generate a scatter of Beta (x-axis) vs Alpha (y-axis).  
+        3. **Time Series (Rolling 12-Month Alpha/Beta)**  
+           - Up to 5 MSAs, pick alpha or beta, define date range.  
+           - Shows monthly rolling alpha/beta lines.  
+        4. **Historical Growth and Forecasts (All MSAs)**  
+           - Year-over-Year (January–January) data for every MSA vs national.  
+           - Input up to 3 forecast % for national. We compute each MSA’s implied growth from alpha & beta (in the chosen window).  
+        5. **Single MSA Comparative Year Over Year Growth**  
+           - Pick 1 MSA + start/end years.  
+           - See a bar chart of national vs MSA historical growth.  
+           - Input up to 3 forecast % to see the MSA’s projected growth bars.
         """
     )
 
