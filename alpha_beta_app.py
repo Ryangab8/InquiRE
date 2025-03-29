@@ -283,6 +283,33 @@ def compute_rolling_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
     return pd.DataFrame(results_ts)
 
 # ---------------------------------------------------------------------
+# 8) Helper for YOY Alpha/Beta in Growth & Forecasting
+# ---------------------------------------------------------------------
+def get_alpha_beta_rsq_yoy(sid, ylist, yoy_map):
+    # Properly initialize xvals and yvals
+    xvals = []
+    yvals = []
+    for y in ylist:
+        nval = yoy_map[NATIONAL_SERIES_ID].get(y, None)
+        mval = yoy_map[sid].get(y, None)
+        if nval is not None and mval is not None:
+            xvals.append(nval)
+            yvals.append(mval)
+    if len(xvals) < 2:
+        return (None, None, None)
+    Xdf = pd.DataFrame({"nat": xvals})
+    Xdf = sm.add_constant(Xdf, prepend=True)
+    model = sm.OLS(yvals, Xdf).fit()
+    alph, beta, rsq = None, None, None
+    try:
+        alph = model.params["const"]
+        beta = model.params["nat"]
+        rsq  = model.rsquared
+    except:
+        alph, beta, rsq = None, None, None
+    return (alph, beta, rsq)
+
+# ---------------------------------------------------------------------
 # Create Tabs
 # ---------------------------------------------------------------------
 tabs = st.tabs(["XY Chart", "Time Series", "Growth and Forecasting"])
@@ -343,14 +370,13 @@ with tabs[0]:
                 if ab_df.empty:
                     st.error("Could not compute alpha/beta.")
                 else:
-                    # Convert to numeric to avoid plotting issues
+                    # Convert alpha/beta to numeric to avoid Plotly issues
                     ab_df["Alpha"] = pd.to_numeric(ab_df["Alpha"], errors="coerce")
                     ab_df["Beta"]  = pd.to_numeric(ab_df["Beta"], errors="coerce")
 
                     st.session_state["xy_df"] = ab_df
                     title_xy = f"Alpha vs Beta ({xy_start_ym} to {xy_end_ym}) - {metric_choice}"
                     
-                    # Build the figure with markers+text
                     fig_xy = px.scatter(
                         ab_df,
                         x="Beta",
@@ -358,6 +384,7 @@ with tabs[0]:
                         text="Metro",
                         title=title_xy
                     )
+                    # Force markers + text
                     fig_xy.update_traces(mode="markers+text", textposition='top center')
 
                     # Optional: manually set axis range if needed
@@ -508,28 +535,6 @@ Enter national growth forecast scenarios to project MSA growth from alpha/beta i
             scenarios.append((lbl, ff))
 
     diff_mode = st.checkbox("Show National vs Metro Variance (MSA minus National)?", value=False)
-
-    def get_alpha_beta_rsq_yoy(sid, ylist, yoy_map):
-        xvals, yvals = []
-        for y in ylist:
-            nval = yoy_map[NATIONAL_SERIES_ID].get(y, None)
-            mval = yoy_map[sid].get(y, None)
-            if nval is not None and mval is not None:
-                xvals.append(nval)
-                yvals.append(mval)
-        if len(xvals) < 2:
-            return (None, None, None)
-        Xdf = pd.DataFrame({"nat": xvals})
-        Xdf = sm.add_constant(Xdf, prepend=True)
-        model = sm.OLS(yvals, Xdf).fit()
-        alph, beta, rsq = None, None, None
-        try:
-            alph = model.params["const"]
-            beta = model.params["nat"]
-            rsq  = model.rsquared
-        except:
-            alph, beta, rsq = None, None, None
-        return (alph, beta, rsq)
 
     if st.button("Generate Table"):
         if yoy_table_end < yoy_table_start + 5:
