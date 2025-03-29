@@ -343,33 +343,24 @@ with tabs[0]:
                 if ab_df.empty:
                     st.error("Could not compute alpha/beta.")
                 else:
-                    # DEBUG ADDITIONS: Convert to numeric, show dtypes, etc.
+                    # Convert to numeric to avoid plotting issues
                     ab_df["Alpha"] = pd.to_numeric(ab_df["Alpha"], errors="coerce")
                     ab_df["Beta"]  = pd.to_numeric(ab_df["Beta"], errors="coerce")
-                    
-                    st.write("### Debugging alpha/beta DataFrame:")
-                    st.write(ab_df)
-                    st.write("#### dtypes:")
-                    st.write(ab_df.dtypes)
 
                     st.session_state["xy_df"] = ab_df
                     title_xy = f"Alpha vs Beta ({xy_start_ym} to {xy_end_ym}) - {metric_choice}"
                     
-                    # Build the figure
+                    # Build the figure with markers+text
                     fig_xy = px.scatter(
                         ab_df,
                         x="Beta",
                         y="Alpha",
                         text="Metro",
                         title=title_xy
-                        # Removed render_mode="webgl" for debugging
                     )
-
-                    # DEBUG ADDITIONS: force markers+text
                     fig_xy.update_traces(mode="markers+text", textposition='top center')
-                    
-                    # Optional: manually set x/y ranges to ensure data isn't off-screen
-                    # (uncomment if needed to see if your data is far off-axis)
+
+                    # Optional: manually set axis range if needed
                     # fig_xy.update_xaxes(range=[-5, 5])
                     # fig_xy.update_yaxes(range=[-5, 5])
 
@@ -399,7 +390,7 @@ with tabs[1]:
     if "fig_ts" not in st.session_state:
         st.session_state["fig_ts"] = None
 
-    all_msa_names_no_nat = [m for m in xy_all_msas if m != "National"]
+    all_msa_names_no_nat = [m for m in sorted(INVERTED_MAP.keys()) if m != "National"]
     selected_time_msas = st.multiselect(
         "Pick up to 5 MSAs for Time Series:",
         options=all_msa_names_no_nat,
@@ -519,7 +510,7 @@ Enter national growth forecast scenarios to project MSA growth from alpha/beta i
     diff_mode = st.checkbox("Show National vs Metro Variance (MSA minus National)?", value=False)
 
     def get_alpha_beta_rsq_yoy(sid, ylist, yoy_map):
-        xvals, yvals = [], []
+        xvals, yvals = []
         for y in ylist:
             nval = yoy_map[NATIONAL_SERIES_ID].get(y, None)
             mval = yoy_map[sid].get(y, None)
