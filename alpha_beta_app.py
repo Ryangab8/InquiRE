@@ -243,10 +243,6 @@ def compute_alpha_beta_subset(df_subset, nat_col, msa_col):
 # 7) Rolling Time Series (Rolling 12-Month Alpha/Beta)
 # ---------------------------------------------------------------------
 def compute_rolling_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
-    """
-    Final rolling function: no debug prints,
-    calculates monthly alpha/beta using a 12-month window.
-    """
     df_pivot = df_raw_ts.pivot(index="obs_date", columns="series_id", values="value")
     df_growth = df_pivot.pct_change(1) * 100
     df_growth.dropna(how="all", inplace=True)
@@ -266,7 +262,6 @@ def compute_rolling_alpha_beta_time_series(df_raw_ts, start_ym_ts, end_ym_ts):
         rolling_start = current_month - pd.DateOffset(months=11)
         df_window = df_growth.loc[(df_growth.index >= rolling_start) & (df_growth.index <= current_month)]
         
-        # Process each MSA column individually
         for msa_col in df_growth.columns:
             if msa_col == NATIONAL_SERIES_ID:
                 continue
@@ -348,13 +343,36 @@ with tabs[0]:
                 if ab_df.empty:
                     st.error("Could not compute alpha/beta.")
                 else:
+                    # DEBUG ADDITIONS: Convert to numeric, show dtypes, etc.
+                    ab_df["Alpha"] = pd.to_numeric(ab_df["Alpha"], errors="coerce")
+                    ab_df["Beta"]  = pd.to_numeric(ab_df["Beta"], errors="coerce")
+                    
+                    st.write("### Debugging alpha/beta DataFrame:")
+                    st.write(ab_df)
+                    st.write("#### dtypes:")
+                    st.write(ab_df.dtypes)
+
                     st.session_state["xy_df"] = ab_df
                     title_xy = f"Alpha vs Beta ({xy_start_ym} to {xy_end_ym}) - {metric_choice}"
+                    
+                    # Build the figure
                     fig_xy = px.scatter(
-                        ab_df, x="Beta", y="Alpha", text="Metro",
-                        title=title_xy, render_mode="webgl"
+                        ab_df,
+                        x="Beta",
+                        y="Alpha",
+                        text="Metro",
+                        title=title_xy
+                        # Removed render_mode="webgl" for debugging
                     )
-                    fig_xy.update_traces(textposition='top center')
+
+                    # DEBUG ADDITIONS: force markers+text
+                    fig_xy.update_traces(mode="markers+text", textposition='top center')
+                    
+                    # Optional: manually set x/y ranges to ensure data isn't off-screen
+                    # (uncomment if needed to see if your data is far off-axis)
+                    # fig_xy.update_xaxes(range=[-5, 5])
+                    # fig_xy.update_yaxes(range=[-5, 5])
+
                     fig_xy.update_layout(
                         dragmode='pan',
                         title_x=0.5,
